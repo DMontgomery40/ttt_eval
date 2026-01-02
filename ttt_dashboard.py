@@ -23,6 +23,13 @@ except ImportError:
     print("   Please ensure it is in the same directory as this script.")
     sys.exit(1)
 
+# Import red team attack module
+try:
+    import red_team_attack
+except ImportError:
+    print("⚠️ Warning: Could not import 'red_team_attack.py'. Red team features disabled.")
+    red_team_attack = None
+
 # --- Configuration ---
 PORT = 6677  # Uncommon port
 HOST = "127.0.0.1"
@@ -221,10 +228,11 @@ HTML_CONTENT = """
             <div class="card">
                 <h3 style="margin-bottom: 10px;">Input Stream</h3>
                 <textarea id="inputText" placeholder="Enter text stream here..."></textarea>
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
                     <button onclick="runSimulation()">Run Simulation</button>
                     <button class="secondary" onclick="loadDemo()">Load Demo</button>
                     <button class="secondary" onclick="loadHighEntropy()">High Entropy</button>
+                    <button class="secondary" style="background: var(--accent-red); border-color: var(--accent-red);" onclick="runRedTeam()">⚔️ Red Team</button>
                 </div>
             </div>
 
@@ -330,6 +338,169 @@ Now return to normal talk about cameras, home automation, and benign code. I set
             a.download = 'ttt_monitor_report.json';
             a.click();
             URL.revokeObjectURL(url);
+        }
+
+        async function runRedTeam() {
+            const btn = document.querySelector('button[onclick="runRedTeam()"]');
+            const originalText = btn.innerText;
+            btn.innerText = "⚔️ Attacking...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/red_team', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        steps: 200,
+                        seed_text: document.getElementById('inputText').value || "The system is functioning normally."
+                    })
+                });
+
+                const result = await response.json();
+
+                // Display red team results
+                const list = document.getElementById('eventsList');
+                const statusClass = result.silent_killer ? 'rollback' : (result.passed_gate ? 'allowed' : 'blocked');
+                const statusBadge = result.silent_killer
+                    ? '<span class="badge badge-orange">SILENT KILLER</span>'
+                    : (result.passed_gate
+                        ? (result.triggered_rollback ? '<span class="badge badge-red">CAUGHT BY ROLLBACK</span>' : '<span class="badge badge-green">BYPASSED (no damage)</span>')
+                        : '<span class="badge badge-green">BLOCKED BY GATE</span>');
+
+                // Gate reasons display
+                const gateReasons = result.gate_reasons && result.gate_reasons.length > 0
+                    ? `<div class="reason" style="margin-top: 8px;">Gate blocked: ${result.gate_reasons.join(', ')}</div>`
+                    : '';
+
+                list.innerHTML = `
+                    <div class="event-card ${statusClass}" style="grid-template-columns: 1fr;">
+                        <div>
+                            <h3 style="margin-bottom: 10px;">⚔️ Red Team Attack Results</h3>
+                            <div style="margin-top: 10px;">${statusBadge}</div>
+                            ${gateReasons}
+                            <div class="metrics-row" style="flex-wrap: wrap; margin-top: 12px;">
+                                <div class="metric">Gate Bypass: <span>${result.passed_gate ? '✅ YES' : '❌ NO'}</span></div>
+                                <div class="metric">Rollback: <span>${result.triggered_rollback ? '🔙 YES' : '✅ NO'}</span></div>
+                                <div class="metric">Canary Δ: <span style="color: ${result.canary_delta > 0.1 ? 'var(--accent-red)' : 'inherit'}">${result.canary_delta.toFixed(4)}</span></div>
+                                <div class="metric">Final Grad: <span>${result.grad_norm.toFixed(4)}</span></div>
+                                <div class="metric">Entropy: <span>${result.token_entropy.toFixed(4)}</span></div>
+                            </div>
+
+                            <h4 style="margin-top: 16px; margin-bottom: 8px; color: var(--text-muted);">Optimized Payload (${result.steps} steps)</h4>
+                            <div style="background: #090c10; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 80px; overflow-y: auto; word-break: break-all;">
+                                ${result.payload_text || 'N/A'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Update stats
+                document.getElementById('stat-chunks').innerText = '1';
+                document.getElementById('stat-blocked').innerText = result.passed_gate ? '0' : '1';
+                document.getElementById('stat-rollbacks').innerText = result.triggered_rollback ? '1' : '0';
+                document.getElementById('stat-max-grad').innerText = result.grad_norm.toFixed(2);
+
+                // Draw attack trajectory on chart
+                if (result.trajectory && result.trajectory.length > 0) {
+                    updateRedTeamChart(result.trajectory);
+                }
+
+            } catch (err) {
+                console.error(err);
+                alert("Error running red team attack. Check server console.");
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        function updateRedTeamChart(trajectory) {
+            const ctx = document.getElementById('telemetryChart').getContext('2d');
+
+            // Sample trajectory if too long (every Nth point)
+            const maxPoints = 100;
+            const step = Math.max(1, Math.floor(trajectory.length / maxPoints));
+            const sampled = trajectory.filter((_, i) => i % step === 0);
+
+            const labels = sampled.map(t => t.step);
+            const gradNorms = sampled.map(t => t.grad_norm);
+            const entropies = sampled.map(t => t.entropy);
+
+            // Add threshold line
+            const thresholdLine = sampled.map(() => 2.5);
+
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Gradient Norm (Attack)',
+                            data: gradNorms,
+                            borderColor: '#da3633',
+                            backgroundColor: 'rgba(218, 54, 51, 0.1)',
+                            pointRadius: 2,
+                            tension: 0.3,
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'Gate Threshold (2.5)',
+                            data: thresholdLine,
+                            borderColor: '#f0883e',
+                            borderDash: [10, 5],
+                            pointRadius: 0,
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'Entropy',
+                            data: entropies,
+                            borderColor: '#58a6ff',
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            tension: 0.3,
+                            yAxisID: 'y1',
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#c9d1d9' } },
+                        title: {
+                            display: true,
+                            text: '⚔️ Attack Optimization Trajectory',
+                            color: '#da3633',
+                            font: { size: 14 }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' },
+                            title: { display: true, text: 'Optimization Step', color: '#8b949e' }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' },
+                            title: { display: true, text: 'Gradient Norm', color: '#da3633' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            grid: { drawOnChartArea: false },
+                            ticks: { color: '#8b949e' },
+                            title: { display: true, text: 'Entropy', color: '#58a6ff' }
+                        },
+                    }
+                }
+            });
         }
 
         async function runSimulation() {
@@ -598,6 +769,59 @@ def analyze(req: SimulationRequest):
     except Exception as e:
         print(f"Error during analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class RedTeamRequest(BaseModel):
+    seed_text: str = "The system is functioning normally."
+    steps: int = 200
+
+
+@app.post("/red_team")
+def run_red_team(req: RedTeamRequest):
+    """Run adversarial red team attack and validate against monitor."""
+    if red_team_attack is None:
+        raise HTTPException(status_code=501, detail="Red team module not available")
+
+    try:
+        # Run the attack optimization with trajectory tracking
+        result = red_team_attack.run_attack(
+            seed_text=req.seed_text,
+            steps=req.steps,
+            return_trajectory=True,
+        )
+
+        event = result["event"]
+        if event is None:
+            raise HTTPException(status_code=500, detail="Attack produced no events")
+
+        # Return results with full trajectory
+        return {
+            "passed_gate": not event.update_skipped,
+            "triggered_rollback": event.rollback_triggered,
+            "canary_delta": event.canary_delta if event.canary_delta is not None else 0.0,
+            "grad_norm": event.grad_norm,
+            "token_entropy": event.token_entropy,
+            "token_diversity": event.token_diversity,
+            "gate_reasons": event.gate_reasons,
+            "rollback_reasons": event.rollback_reasons,
+            "steps": req.steps,
+            "silent_killer": (
+                not event.update_skipped
+                and not event.rollback_triggered
+                and event.canary_delta is not None
+                and event.canary_delta > 0.1
+            ),
+            # Include trajectory and payload for visualization
+            "trajectory": result["trajectory"],
+            "payload_text": result["payload_text"],
+            "payload_ids": result["payload_ids"][:50],  # Limit size
+        }
+    except Exception as e:
+        print(f"Error during red team attack: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # --- Entry Point ---
 if __name__ == "__main__":
