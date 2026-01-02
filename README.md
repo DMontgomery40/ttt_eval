@@ -45,6 +45,32 @@ The pre-update gate blocks `opt.step()` when any of these conditions are detecte
 
 When the gate blocks, the chunk is still processed for monitoring but the adapter weights remain unchanged.
 
+## Post-Update Rollback
+
+The pre-update gate prevents writes; rollback is the post-update airbag.
+
+Even if a write passes the gate, rollback catches it if it corrupts the model's behavior. Each update is treated like a transaction:
+
+1. **Snapshot** adapter weights before update
+2. **Apply** the TTT update step
+3. **Probe** with a fixed "canary" text (measure next-token loss)
+4. **Rollback** if canary loss spikes, reverting to pre-update weights
+
+| Trigger | What it catches |
+|---------|-----------------|
+| **Absolute canary delta** | Single update causes large loss increase on canary |
+| **Canary delta z-score** | Update causes anomalous loss spike vs recent history |
+
+This provides defense-in-depth: the gate blocks obvious threats, rollback catches subtle corruption that slips through.
+
+```bash
+# Test rollback with gate disabled (so rollback has something to catch)
+python ttt_input_gradient_monitor.py --demo_high_entropy --disable_gate --chunk_tokens 32
+
+# Adjust rollback sensitivity
+python ttt_input_gradient_monitor.py --demo_high_entropy --disable_gate --rollback_abs_canary_delta 0.5
+```
+
 ## Installation
 
 ```bash
@@ -94,13 +120,23 @@ cat document.txt | python ttt_input_gradient_monitor.py --stdin
 | `--ood_loss_threshold` | Loss threshold for OOD detection (default: 8.0) |
 | `--ood_grad_threshold` | Grad threshold for OOD+heavy-write (default: 2.0) |
 
+### Rollback Options
+
+| Flag | Description |
+|------|-------------|
+| `--disable_rollback` | Turn off post-update rollback |
+| `--rollback_abs_canary_delta` | Canary loss delta threshold to trigger rollback (default: 1.0) |
+| `--rollback_z_threshold` | Robust z-score threshold on canary delta (default: 6.0) |
+| `--canary_text` | Custom canary text for drift detection |
+
 ## Output
 
 Each chunk reports:
-- Loss, gradient norm, update norm
+- Loss, gradient norm, effective update norm, attempted update norm
 - Robust z-scores relative to recent history
 - Flag status with reasons
 - Gate decision (ALLOWED/BLOCKED) with reasons
+- Rollback status and canary drift metrics
 - Token entropy and diversity metrics
 - Top influential tokens
 

@@ -32,15 +32,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-# -----------------------------
-# Canary text for rollback drift detection
-# -----------------------------
-
+# Canary text used for rollback drift detection
 DEFAULT_CANARY_TEXT = (
     "The quick brown fox jumps over the lazy dog. "
     "Pack my box with five dozen liquor jugs. "
     "Sphinx of black quartz, judge my vow. "
 )
+
 
 # -----------------------------
 # Pre-update gate heuristics
@@ -287,11 +285,11 @@ def robust_zscore(value: float, history: List[float]) -> Optional[float]:
         mad = 1e-8
     return (value - med) / (1.4826 * mad)
 
-
-def compute_canary_loss(model: "ToyTTTModel", input_ids: torch.Tensor, vocab_size: int) -> float:
+def compute_next_token_loss(model: "ToyTTTModel", input_ids: torch.Tensor, vocab_size: int) -> float:
     """
-    Compute next-token cross-entropy loss for canary input without backprop.
-    Used as a "drift probe" to detect if an update corrupted the model.
+    Compute next-token cross-entropy loss for a batch of input ids.
+
+    This runs without backprop and is used as a "canary" drift probe for rollback.
     """
     with torch.no_grad():
         logits, _ = model(input_ids, return_emb=False)
@@ -304,6 +302,7 @@ def compute_canary_loss(model: "ToyTTTModel", input_ids: torch.Tensor, vocab_siz
         return float(loss.item())
 
 
+
 @dataclass
 class MonitorEvent:
     chunk_index: int
@@ -311,7 +310,7 @@ class MonitorEvent:
     token_end: int
     loss: float
     grad_norm: float
-    update_norm: float  # Effective update magnitude (after any rollback)
+    update_norm: float  # Effective update magnitude applied this chunk
     grad_z: Optional[float]
     update_z: Optional[float]
     flagged: bool
@@ -324,14 +323,19 @@ class MonitorEvent:
     token_entropy: float
     token_diversity: float
     update_skipped: bool  # True if update was blocked by gate
+
     # Rollback fields
-    attempted_update_norm: float  # Update magnitude before rollback check
+    attempted_update_norm: float  # Update magnitude attempted before rollback
     rollback_triggered: bool
     rollback_reasons: List[str]
+
+    # Canary drift probe (used for rollback)
     canary_loss_before: Optional[float]
     canary_loss_after: Optional[float]
-    canary_delta: Optional[float]
-    canary_delta_z: Optional[float]
+    canary_delta_effective: Optional[float]
+    canary_delta_effective_z: Optional[float]
+    rollback_canary_delta: Optional[float]
+    rollback_canary_delta_z: Optional[float]
 
 
 def run_monitor(
@@ -376,18 +380,20 @@ def run_monitor(
     tokens = tokenize(text)
     ids = ids_from_tokens(tokens, vocab_size)
 
-    # Canary setup for rollback drift detection
+    # Canary setup (used to detect catastrophic drift after an update)
     canary_input_ids: Optional[torch.Tensor] = None
     if enable_rollback:
         canary_tokens = tokenize(canary_text)
         canary_ids = ids_from_tokens(canary_tokens, vocab_size)
+        # Ensure canary has enough length for next-token loss
         if len(canary_ids) < 8:
             canary_ids = (canary_ids * 8)[:8] if canary_ids else [0] * 8
         canary_input_ids = torch.tensor([canary_ids], dtype=torch.long, device=device)
 
     grad_history: List[float] = []
-    update_history: List[float] = []
-    canary_delta_history: List[float] = []
+    update_history: List[float] = []  # attempted update norms for anomaly detection
+    canary_step_delta_history: List[float] = []  # canary deltas for rollback detection
+    canary_chunk_delta_history: List[float] = []  # chunk-level canary deltas for reporting
 
     events: List[MonitorEvent] = []
 
@@ -404,18 +410,22 @@ def run_monitor(
         update_skipped = False
         rollback_triggered = False
         rollback_reasons: List[str] = []
-        attempted_update_norm = 0.0
-        update_norm = 0.0
 
-        # Canary measurements
+        attempted_update_norm_total = 0.0
+        update_norm = 0.0  # Effective update magnitude applied this chunk
+
+        # Canary baseline before any updates in this chunk
         canary_loss_before: Optional[float] = None
         canary_loss_after: Optional[float] = None
-        canary_delta: Optional[float] = None
-        canary_delta_z: Optional[float] = None
+        canary_loss_current: Optional[float] = None
+        canary_delta_effective: Optional[float] = None
+        canary_delta_effective_z: Optional[float] = None
+        rollback_canary_delta: Optional[float] = None
+        rollback_canary_delta_z: Optional[float] = None
 
-        # Measure canary before any updates in this chunk
         if enable_rollback and canary_input_ids is not None:
-            canary_loss_before = compute_canary_loss(model, canary_input_ids, vocab_size)
+            canary_loss_before = compute_next_token_loss(model, canary_input_ids, vocab_size)
+            canary_loss_current = canary_loss_before
 
         for _ in range(ttt_steps_per_chunk):
             opt.zero_grad(set_to_none=True)
@@ -450,55 +460,62 @@ def run_monitor(
                 ood_grad_threshold=ood_grad_threshold,
             )
 
-            # Snapshot weights before update
-            old = model.adapter.weight.detach().clone()
+            attempted_update_norm_step = 0.0
+            effective_update_norm_step = 0.0
 
+            # Attempt update (only if gate allows)
+            old = model.adapter.weight.detach().clone()
             if not enable_gate or gate_decision.allow_update:
-                # Apply update
                 opt.step()
-                step_update_norm = float((model.adapter.weight.detach() - old).norm().item())
-                attempted_update_norm += step_update_norm
+                attempted_update_norm_step = float((model.adapter.weight.detach() - old).norm().item())
+                effective_update_norm_step = attempted_update_norm_step
 
                 # --- Post-update rollback check ---
-                if enable_rollback and canary_input_ids is not None and canary_loss_before is not None:
-                    canary_after_step = compute_canary_loss(model, canary_input_ids, vocab_size)
-                    step_delta = canary_after_step - canary_loss_before
-                    step_delta_z = robust_zscore(step_delta, canary_delta_history[-history_window:])
+                if enable_rollback and canary_input_ids is not None and canary_loss_current is not None:
+                    canary_before_step = canary_loss_current
+                    canary_after_step = compute_next_token_loss(model, canary_input_ids, vocab_size)
+                    step_delta = canary_after_step - canary_before_step
+                    step_delta_z = robust_zscore(step_delta, canary_step_delta_history[-history_window:])
 
-                    should_rollback = False
-                    if step_delta >= rollback_abs_canary_delta:
-                        should_rollback = True
-                        rollback_reasons.append(f"abs_canary_delta({step_delta:.3f}>={rollback_abs_canary_delta})")
-                    if step_delta_z is not None and step_delta_z >= rollback_z_threshold:
-                        should_rollback = True
-                        rollback_reasons.append(f"canary_delta_z({step_delta_z:.2f}>={rollback_z_threshold})")
-
-                    if should_rollback:
-                        # Revert to pre-step weights
+                    if (step_delta >= rollback_abs_canary_delta) or (step_delta_z is not None and step_delta_z >= rollback_z_threshold):
                         rollback_triggered = True
+                        if step_delta >= rollback_abs_canary_delta:
+                            rollback_reasons.append("rollback_abs_canary_delta")
+                        if step_delta_z is not None and step_delta_z >= rollback_z_threshold:
+                            rollback_reasons.append("rollback_canary_delta_robust_z")
+
+                        rollback_canary_delta = step_delta
+                        rollback_canary_delta_z = step_delta_z
+
+                        # Revert adapter weights to T-1
                         with torch.no_grad():
                             model.adapter.weight.copy_(old)
-                        canary_loss_after = canary_loss_before  # Reverted, so canary unchanged
-                        canary_delta = 0.0
-                        # Don't count this as effective update
-                        update_norm = 0.0
+
+                        effective_update_norm_step = 0.0
+                        canary_loss_current = canary_before_step
+
+                        attempted_update_norm_total += attempted_update_norm_step
+                        update_norm += effective_update_norm_step
                         break
                     else:
-                        # Update succeeded, record canary delta
-                        canary_loss_after = canary_after_step
-                        canary_delta = step_delta
-                        canary_delta_z = step_delta_z
-                        update_norm += step_update_norm
-                        canary_delta_history.append(step_delta)
-                else:
-                    # Rollback disabled, just count the update
-                    update_norm += step_update_norm
+                        canary_loss_current = canary_after_step
+                        canary_step_delta_history.append(step_delta)
             else:
                 update_skipped = True
 
-        # Robust scores relative to recent history (use attempted for anomaly detection)
+            attempted_update_norm_total += attempted_update_norm_step
+            update_norm += effective_update_norm_step
+
+        # Canary after chunk (effective weights)
+        if enable_rollback and canary_loss_before is not None and canary_loss_current is not None:
+            canary_loss_after = canary_loss_current
+            canary_delta_effective = canary_loss_after - canary_loss_before
+            canary_delta_effective_z = robust_zscore(canary_delta_effective, canary_chunk_delta_history[-history_window:])
+            canary_chunk_delta_history.append(canary_delta_effective)
+
+        # Robust scores relative to recent history
         grad_z = robust_zscore(grad_norm, grad_history[-history_window:])
-        update_z = robust_zscore(attempted_update_norm, update_history[-history_window:])
+        update_z = robust_zscore(attempted_update_norm_total, update_history[-history_window:])
 
         flagged = False
         reasons: List[str] = []
@@ -507,8 +524,7 @@ def run_monitor(
             flagged = True
             reasons.append("abs_grad_norm")
 
-        # Flag based on attempted update (before rollback)
-        if attempted_update_norm >= abs_update_norm_threshold:
+        if attempted_update_norm_total >= abs_update_norm_threshold:
             flagged = True
             reasons.append("abs_update_norm")
 
@@ -549,18 +565,20 @@ def run_monitor(
                 token_entropy=gate_decision.token_entropy,
                 token_diversity=gate_decision.token_diversity,
                 update_skipped=update_skipped,
-                attempted_update_norm=attempted_update_norm,
+                attempted_update_norm=attempted_update_norm_total,
                 rollback_triggered=rollback_triggered,
                 rollback_reasons=rollback_reasons,
                 canary_loss_before=canary_loss_before,
                 canary_loss_after=canary_loss_after,
-                canary_delta=canary_delta,
-                canary_delta_z=canary_delta_z,
+                canary_delta_effective=canary_delta_effective,
+                canary_delta_effective_z=canary_delta_effective_z,
+                rollback_canary_delta=rollback_canary_delta,
+                rollback_canary_delta_z=rollback_canary_delta_z,
             )
         )
 
         grad_history.append(grad_norm)
-        update_history.append(attempted_update_norm)
+        update_history.append(attempted_update_norm_total)
 
     return events
 
@@ -595,32 +613,32 @@ def print_report(events: List[MonitorEvent], *, max_events: int = 9999) -> None:
 
     print("")
     print("TTT Input Gradient Monitor Report")
-    print("=" * 70)
+    print("=" * 60)
 
     # Summary stats
     total = len(events)
     flagged = sum(1 for e in events if e.flagged)
     blocked = sum(1 for e in events if e.update_skipped)
     rolled_back = sum(1 for e in events if e.rollback_triggered)
-    print(f"Total chunks: {total}  |  Flagged: {flagged}  |  Blocked: {blocked}  |  Rollbacks: {rolled_back}")
-    print("=" * 70)
+    print(f"Total chunks: {total}  |  Flagged: {flagged}  |  Updates blocked: {blocked}  |  Rollbacks: {rolled_back}")
+    print("=" * 60)
     print("")
 
     for e in events[:max_events]:
         flag = "FLAG" if e.flagged else "ok"
         gate = "BLOCKED" if e.update_skipped else ("ALLOWED" if e.gate_allowed else "would-block")
         reasons = ",".join(e.reasons) if e.reasons else "-"
-        # Show both attempted and effective update norms
         print(f"[chunk {e.chunk_index:03d}] tokens {e.token_start:06d}-{e.token_end:06d}  loss={e.loss:.3f}  grad={e.grad_norm:.3f}  upd={e.update_norm:.3f}  try={e.attempted_update_norm:.3f}  grad_z={format_float(e.grad_z)}  upd_z={format_float(e.update_z)}  {flag}  {reasons}")
         print(f"  gate: {gate}  entropy={e.token_entropy:.2f}  diversity={e.token_diversity:.2f}")
         if e.gate_reasons:
             print(f"  gate_reasons: {', '.join(e.gate_reasons)}")
-        # Rollback info
         if e.rollback_triggered:
             rb_reasons = ", ".join(e.rollback_reasons) if e.rollback_reasons else "-"
-            print(f"  rollback: TRIGGERED  reasons: {rb_reasons}")
-        if e.canary_loss_before is not None:
-            print(f"  canary: before={e.canary_loss_before:.3f}  after={format_float(e.canary_loss_after)}  delta={format_float(e.canary_delta)}  z={format_float(e.canary_delta_z)}")
+            print(f"  rollback: TRIGGERED  reasons={rb_reasons}")
+            if e.rollback_canary_delta is not None:
+                print(f"  rollback_canary_delta: {e.rollback_canary_delta:.3f}  z={format_float(e.rollback_canary_delta_z)}")
+        elif e.canary_loss_before is not None and e.canary_loss_after is not None:
+            print(f"  canary: before={e.canary_loss_before:.3f}  after={e.canary_loss_after:.3f}  delta={e.canary_delta_effective:.3f}  z={format_float(e.canary_delta_effective_z)}")
         print(f"  preview: {e.chunk_preview}")
         print("  top influence tokens:")
         for tok, val in e.top_influence_tokens:
@@ -658,11 +676,11 @@ def main() -> None:
     p.add_argument("--ood_loss_threshold", type=float, default=8.0, help="Loss threshold for OOD detection")
     p.add_argument("--ood_grad_threshold", type=float, default=2.0, help="Grad threshold for OOD+heavy-write gate")
 
-    # Rollback parameters (post-update safety net)
+    # Rollback parameters
     p.add_argument("--disable_rollback", action="store_true", help="Disable post-update rollback mechanism")
     p.add_argument("--rollback_z_threshold", type=float, default=6.0, help="Robust z-score threshold on canary delta to trigger rollback")
     p.add_argument("--rollback_abs_canary_delta", type=float, default=1.0, help="Absolute canary loss delta threshold to trigger rollback")
-    p.add_argument("--canary_text", type=str, default=DEFAULT_CANARY_TEXT, help="Canary text for drift probe")
+    p.add_argument("--canary_text", type=str, default=DEFAULT_CANARY_TEXT, help="Canary text for drift probe (quoted string)")
 
     p.add_argument("--write_json", action="store_true", help="Write monitor_report.json")
 
@@ -687,6 +705,8 @@ def main() -> None:
 
     # Handle gate enable/disable
     gate_enabled = args.enable_gate and not args.disable_gate
+
+    # Handle rollback enable/disable
     rollback_enabled = not args.disable_rollback
 
     events = run_monitor(
