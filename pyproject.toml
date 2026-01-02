@@ -1,0 +1,11 @@
+[project]
+name = "ttt_eval"
+version = "0.1.0"
+description = "Toy demo of an Input Gradient Monitor for test-time training (TTT)"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+]
+
+[project.scripts]
+ttt-monitor = "ttt_input_gradient_monitor:main"
