@@ -30,169 +30,6 @@ from typing import List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-
-# -----------------------------
-# Pre-update gate heuristics
-# -----------------------------
-
-# Base64 charset pattern (dense alphanumeric with +/= padding)
-_BASE64_RE = re.compile(r'^[A-Za-z0-9+/]{20,}={0,2}$')
-# Hex pattern
-_HEX_RE = re.compile(r'^[0-9a-fA-F]{16,}$')
-# Minified JS/code pattern (long strings with minimal whitespace, lots of symbols)
-_MINIFIED_RE = re.compile(r'^[^\s]{50,}$')
-
-# Instruction override patterns
-_INSTRUCTION_OVERRIDE_PATTERNS = [
-    re.compile(r'ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)', re.I),
-    re.compile(r'disregard\s+(all\s+)?(previous|prior|above)', re.I),
-    re.compile(r'you\s+are\s+now\s+(unfiltered|jailbroken|unrestricted|evil)', re.I),
-    re.compile(r'new\s+(instructions?|rules?|persona)\s*:', re.I),
-    re.compile(r'system\s*prompt\s*override', re.I),
-    re.compile(r'forget\s+(everything|all|your)\s+(you|instructions?|training)', re.I),
-    re.compile(r'act\s+as\s+(if\s+)?(you\s+have\s+)?no\s+(restrictions?|filters?|limits?)', re.I),
-    re.compile(r'pretend\s+(you\s+are|to\s+be)\s+(evil|unrestricted|unfiltered)', re.I),
-    re.compile(r'(obey|follow|execute)\s+(any|all|every)\s+(request|command|instruction)', re.I),
-    re.compile(r'do\s+not\s+(refuse|decline|reject)\s+any', re.I),
-]
-
-
-def compute_token_entropy(tokens: List[str]) -> float:
-    """
-    Compute Shannon entropy over token distribution.
-    Low entropy = repetitive/low diversity. High entropy = varied.
-    Returns bits per token.
-    """
-    if len(tokens) == 0:
-        return 0.0
-    counts: dict[str, int] = {}
-    for t in tokens:
-        counts[t] = counts.get(t, 0) + 1
-    total = len(tokens)
-    entropy = 0.0
-    for c in counts.values():
-        p = c / total
-        if p > 0:
-            entropy -= p * math.log2(p)
-    return entropy
-
-
-def compute_token_diversity_ratio(tokens: List[str]) -> float:
-    """
-    Ratio of unique tokens to total tokens.
-    1.0 = all unique, 0.0 = all same token.
-    """
-    if len(tokens) == 0:
-        return 0.0
-    return len(set(tokens)) / len(tokens)
-
-
-def detect_blob_tokens(tokens: List[str]) -> Tuple[bool, List[str]]:
-    """
-    Detect base64, hex, or minified blob patterns.
-    Returns (is_blob, list of matching tokens).
-    """
-    blob_matches = []
-    for t in tokens:
-        if len(t) < 10:
-            continue
-        if _BASE64_RE.match(t):
-            blob_matches.append(t)
-        elif _HEX_RE.match(t):
-            blob_matches.append(t)
-        elif _MINIFIED_RE.match(t) and not t.isalpha():
-            blob_matches.append(t)
-    # Flag if >20% of tokens are blobs
-    is_blob = len(blob_matches) > 0.2 * len(tokens) if tokens else False
-    return is_blob, blob_matches[:5]  # Return sample
-
-
-def detect_instruction_override(text: str) -> Tuple[bool, List[str]]:
-    """
-    Detect instruction override / jailbreak patterns.
-    Returns (detected, list of matched pattern descriptions).
-    """
-    matches = []
-    for pattern in _INSTRUCTION_OVERRIDE_PATTERNS:
-        m = pattern.search(text)
-        if m:
-            matches.append(m.group(0))
-    return len(matches) > 0, matches
-
-
-@dataclass
-class GateDecision:
-    """Result of the pre-update gate check."""
-    allow_update: bool
-    reasons: List[str]
-    token_entropy: float
-    token_diversity: float
-    is_blob: bool
-    blob_samples: List[str]
-    instruction_override: bool
-    override_matches: List[str]
-
-
-def check_gate(
-    chunk_tokens: List[str],
-    chunk_text: str,
-    loss: float,
-    grad_norm: float,
-    *,
-    min_entropy_threshold: float = 1.0,
-    min_diversity_threshold: float = 0.1,
-    ood_loss_threshold: float = 8.0,
-    ood_grad_threshold: float = 2.0,
-) -> GateDecision:
-    """
-    Pre-update gate: decide whether to allow TTT update on this chunk.
-
-    Blocks update when:
-    1. Token entropy too low (repetitive input)
-    2. Token diversity too low
-    3. Base64/hex/minified blob detected
-    4. Instruction override pattern detected
-    5. High loss + high gradient (OOD + heavy write pressure)
-    """
-    reasons = []
-
-    # 1. Token entropy check
-    entropy = compute_token_entropy(chunk_tokens)
-    if entropy < min_entropy_threshold:
-        reasons.append(f"low_entropy({entropy:.2f}<{min_entropy_threshold})")
-
-    # 2. Token diversity check
-    diversity = compute_token_diversity_ratio(chunk_tokens)
-    if diversity < min_diversity_threshold:
-        reasons.append(f"low_diversity({diversity:.2f}<{min_diversity_threshold})")
-
-    # 3. Blob detection
-    is_blob, blob_samples = detect_blob_tokens(chunk_tokens)
-    if is_blob:
-        reasons.append(f"blob_detected({len(blob_samples)} samples)")
-
-    # 4. Instruction override detection
-    override_detected, override_matches = detect_instruction_override(chunk_text)
-    if override_detected:
-        reasons.append(f"instruction_override({len(override_matches)} matches)")
-
-    # 5. OOD + heavy write (high loss AND high gradient)
-    if loss >= ood_loss_threshold and grad_norm >= ood_grad_threshold:
-        reasons.append(f"ood_heavy_write(loss={loss:.2f},grad={grad_norm:.2f})")
-
-    allow = len(reasons) == 0
-
-    return GateDecision(
-        allow_update=allow,
-        reasons=reasons,
-        token_entropy=entropy,
-        token_diversity=diversity,
-        is_blob=is_blob,
-        blob_samples=blob_samples,
-        instruction_override=override_detected,
-        override_matches=override_matches,
-    )
 
 
 # -----------------------------
@@ -292,12 +129,6 @@ class MonitorEvent:
     reasons: List[str]
     top_influence_tokens: List[Tuple[str, float]]
     chunk_preview: str
-    # Gate decision fields
-    gate_allowed: bool
-    gate_reasons: List[str]
-    token_entropy: float
-    token_diversity: float
-    update_skipped: bool  # True if update was blocked by gate
 
 
 def run_monitor(
@@ -315,12 +146,6 @@ def run_monitor(
     abs_update_norm_threshold: float = 0.05,
     robust_z_threshold: float = 6.0,
     history_window: int = 64,
-    # Gate parameters
-    enable_gate: bool = True,
-    min_entropy_threshold: float = 1.0,
-    min_diversity_threshold: float = 0.1,
-    ood_loss_threshold: float = 8.0,
-    ood_grad_threshold: float = 2.0,
 ) -> List[MonitorEvent]:
     torch.manual_seed(seed)
     random.seed(seed)
@@ -349,10 +174,8 @@ def run_monitor(
             continue
 
         input_ids = torch.tensor([chunk_ids], dtype=torch.long, device=device)
-        chunk_text = " ".join(chunk_toks)
 
         # TTT update loop (usually 1 step per chunk in this toy)
-        update_skipped = False
         for _ in range(ttt_steps_per_chunk):
             opt.zero_grad(set_to_none=True)
 
@@ -374,24 +197,9 @@ def run_monitor(
             # Per-token influence proxy
             tok_infl = emb.grad.detach().norm(dim=-1).squeeze(0)  # (T,)
 
-            # --- Pre-update gate check ---
-            gate_decision = check_gate(
-                chunk_toks,
-                chunk_text,
-                float(loss.item()),
-                grad_norm,
-                min_entropy_threshold=min_entropy_threshold,
-                min_diversity_threshold=min_diversity_threshold,
-                ood_loss_threshold=ood_loss_threshold,
-                ood_grad_threshold=ood_grad_threshold,
-            )
-
-            # Actual update magnitude (only if gate allows)
+            # Actual update magnitude
             old = model.adapter.weight.detach().clone()
-            if not enable_gate or gate_decision.allow_update:
-                opt.step()
-            else:
-                update_skipped = True
+            opt.step()
             update_norm = float((model.adapter.weight.detach() - old).norm().item())
 
         # Robust scores relative to recent history
@@ -441,11 +249,6 @@ def run_monitor(
                 reasons=reasons,
                 top_influence_tokens=top_items,
                 chunk_preview=preview,
-                gate_allowed=gate_decision.allow_update,
-                gate_reasons=gate_decision.reasons,
-                token_entropy=gate_decision.token_entropy,
-                token_diversity=gate_decision.token_diversity,
-                update_skipped=update_skipped,
             )
         )
 
@@ -485,24 +288,12 @@ def print_report(events: List[MonitorEvent], *, max_events: int = 9999) -> None:
 
     print("")
     print("TTT Input Gradient Monitor Report")
-    print("=" * 60)
-
-    # Summary stats
-    total = len(events)
-    flagged = sum(1 for e in events if e.flagged)
-    blocked = sum(1 for e in events if e.update_skipped)
-    print(f"Total chunks: {total}  |  Flagged: {flagged}  |  Updates blocked: {blocked}")
-    print("=" * 60)
     print("")
 
     for e in events[:max_events]:
         flag = "FLAG" if e.flagged else "ok"
-        gate = "BLOCKED" if e.update_skipped else ("ALLOWED" if e.gate_allowed else "would-block")
         reasons = ",".join(e.reasons) if e.reasons else "-"
         print(f"[chunk {e.chunk_index:03d}] tokens {e.token_start:06d}-{e.token_end:06d}  loss={e.loss:.3f}  grad={e.grad_norm:.3f}  upd={e.update_norm:.3f}  grad_z={format_float(e.grad_z)}  upd_z={format_float(e.update_z)}  {flag}  {reasons}")
-        print(f"  gate: {gate}  entropy={e.token_entropy:.2f}  diversity={e.token_diversity:.2f}")
-        if e.gate_reasons:
-            print(f"  gate_reasons: {', '.join(e.gate_reasons)}")
         print(f"  preview: {e.chunk_preview}")
         print("  top influence tokens:")
         for tok, val in e.top_influence_tokens:
@@ -532,14 +323,6 @@ def main() -> None:
     p.add_argument("--robust_z_threshold", type=float, default=6.0)
     p.add_argument("--history_window", type=int, default=64)
 
-    # Gate parameters
-    p.add_argument("--enable_gate", action="store_true", default=True, help="Enable pre-update gate (default: on)")
-    p.add_argument("--disable_gate", action="store_true", help="Disable pre-update gate")
-    p.add_argument("--min_entropy_threshold", type=float, default=1.0, help="Min token entropy to allow update")
-    p.add_argument("--min_diversity_threshold", type=float, default=0.1, help="Min token diversity ratio to allow update")
-    p.add_argument("--ood_loss_threshold", type=float, default=8.0, help="Loss threshold for OOD detection")
-    p.add_argument("--ood_grad_threshold", type=float, default=2.0, help="Grad threshold for OOD+heavy-write gate")
-
     p.add_argument("--write_json", action="store_true", help="Write monitor_report.json")
 
     args = p.parse_args()
@@ -561,9 +344,6 @@ def main() -> None:
         # Default behavior is demo
         text = DEMO_TEXT
 
-    # Handle gate enable/disable
-    gate_enabled = args.enable_gate and not args.disable_gate
-
     events = run_monitor(
         text,
         device=args.device,
@@ -576,11 +356,6 @@ def main() -> None:
         abs_update_norm_threshold=args.abs_update_norm_threshold,
         robust_z_threshold=args.robust_z_threshold,
         history_window=args.history_window,
-        enable_gate=gate_enabled,
-        min_entropy_threshold=args.min_entropy_threshold,
-        min_diversity_threshold=args.min_diversity_threshold,
-        ood_loss_threshold=args.ood_loss_threshold,
-        ood_grad_threshold=args.ood_grad_threshold,
     )
 
     print_report(events)

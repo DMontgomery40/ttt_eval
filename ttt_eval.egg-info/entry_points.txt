@@ -1,0 +1,2 @@
+[console_scripts]
+ttt-monitor = ttt_input_gradient_monitor:main
