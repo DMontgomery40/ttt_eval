@@ -205,7 +205,7 @@ The optimizer uses Gumbel-Softmax relaxation to make discrete token selection di
 
 ### Why This Matters
 
-This is the adversarial validation that SSI's internal red team would run. If the optimizer consistently finds Silent Killer payloads, the defenses need strengthening. Current weak spots:
+If the optimizer consistently finds Silent Killer payloads, the defenses need strengthening. Current weak spots:
 
 - **Fixed thresholds**: Attacker can optimize to stay just under
 - **No cumulative tracking**: Many small writes can add up
