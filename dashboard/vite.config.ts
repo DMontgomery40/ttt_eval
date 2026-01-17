@@ -4,7 +4,7 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = env.VITE_NANO_API_URL || 'http://127.0.0.1:8000';
+  const apiTarget = env.VITE_NANO_API_URL || 'http://127.0.0.1:13579';
 
   return {
     plugins: [react()],

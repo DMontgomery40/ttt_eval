@@ -29,12 +29,10 @@ python run_monitor.py --demo --disable_rollback
 
 ### Dashboard (Web UI)
 ```bash
-# Start FastAPI dashboard
-python -m ttt.ui.dashboard
-
-# Or with auto-reload for development
-uvicorn ttt.ui.dashboard:app --reload --port 6677
-# Opens at http://127.0.0.1:6677
+# Start the unified dashboard (API + React UI)
+./start.sh
+# Dashboard: http://127.0.0.1:5173
+# API: http://127.0.0.1:13579
 ```
 
 ### Dashboard Development (React/TypeScript)
@@ -52,8 +50,6 @@ npm run preview      # Preview production build
 python -m ttt.attacks.red_team                  # Default: GRU + AR
 python -m ttt.attacks.red_team --backbone ssm   # Test against SSM
 python -m ttt.attacks.red_team --objective mlm  # Test against MLM
-
-# Or click "⚔️ Red Team" button in dashboard UI
 ```
 
 ### Phase 0/1 Session Management (Advanced)
@@ -281,10 +277,10 @@ The goal is interpretable gradient dynamics, not language modeling performance.
 4. Compare gradient norms, update norms, and gate/rollback rates vs GRU baseline
 
 ### Tune Safety Thresholds
-1. Start dashboard: `python -m ttt.ui.dashboard`
-2. Load demo text and observe telemetry
-3. Adjust entropy threshold, OOD loss threshold, rollback delta via UI controls
-4. Export JSON for offline analysis
+1. Start the unified dashboard: `./start.sh`
+2. Open the **Text** tab and run a demo prompt
+3. Adjust chunk size and gate/rollback toggles
+4. Re-run and compare flagged/blocked/rollback rates
 5. Update defaults in `run_monitor.py` CLI flags
 
 ### Red Team New Defense

@@ -147,38 +147,43 @@ ttt_ssm_eval/
 │   ├── attacks/
 │   │   └── red_team.py       # Adversarial attack optimization
 │   └── ui/
-│       └── dashboard.py      # FastAPI web dashboard
+│       ├── dashboard.py      # Deprecated (use React dashboard)
+│       └── legacy_dashboard.py  # Legacy embedded UI (deprecated)
 ├── run_monitor.py            # CLI entry point
 ├── examples/                 # Red team analysis and results
 └── assets/                   # Screenshots and docs
 ```
 
-## Phase 1 Nano Dashboard (Real Artifacts)
+## Unified Dashboard (Nano + Text)
 
-The React dashboard under `dashboard/` is designed to visualize the on-disk artifact store produced by
-`ttt_ssm_nano/phase1_branching_muon.py` (branching sessions + transaction semantics).
+The React dashboard under `dashboard/` is the single UI surface for this repo:
+- Nano: visualize the Phase 1 session artifact store (`artifacts/sessions/...`)
+- Text: run the toy TTT input-gradient monitor and persist runs (`artifacts/text_runs/...`)
 
-### 1) Generate artifacts
-
-Use the Phase 1 script to create `artifacts/` (base + sessions + runs). See:
-- `ttt_ssm_nano/phase_1_runnable_implementation.md`
-
-### 2) Start the artifacts API
+### Quick start
 
 ```bash
-python -m pip install fastapi uvicorn pydantic
-python -m ttt_ssm_nano.artifacts_api --artifacts_root artifacts --port 8000
+./start.sh
 ```
 
-### 3) Start the React dashboard
+This starts:
+- Artifacts API: `http://127.0.0.1:13579`
+- Dashboard UI: `http://127.0.0.1:5173`
+
+The script generates a tiny demo artifact store if `artifacts/base/base_checkpoint.pt` is missing.
+
+### Manual start (optional)
 
 ```bash
-cd dashboard
-npm install
-npm run dev
+ttt-ssm-api --artifacts_root artifacts --port 13579
 ```
 
-If your API is not on `http://127.0.0.1:8000`, set `VITE_NANO_API_URL` when running Vite.
+```bash
+npm -C dashboard install
+npm -C dashboard run dev
+```
+
+If your API is not on `http://127.0.0.1:13579`, set `VITE_NANO_API_URL` when running Vite.
 
 ## Installation
 
@@ -267,41 +272,11 @@ python run_monitor.py --demo --disable_canary_grad
 | `--disable_canary_grad` | Skip canary gradient alignment (faster) |
 | `--canary_grad_every` | Recompute canary gradient every N chunks (default: 1) |
 
-## Dashboard UI
+## Legacy Dashboard (Deprecated)
 
-The TTT Sentry Dashboard provides a web-based interface for interactive monitoring and visualization.
+`ttt.ui.dashboard` previously hosted an embedded HTML dashboard. It is now deprecated in favor of the unified React dashboard.
 
-```bash
-# Start the dashboard
-python -m ttt.ui.dashboard
-
-# Or with uvicorn for auto-reload during development
-uvicorn ttt.ui.dashboard:app --reload --port 6677
-```
-
-Then open http://127.0.0.1:6677 in your browser.
-
-### Features
-
-| Component | Description |
-|-----------|-------------|
-| **Input Stream** | Paste or type text to analyze, with demo presets |
-| **Parameter Controls** | Adjust chunk size, entropy threshold, OOD loss threshold, rollback delta |
-| **Architecture Selector** | Choose backbone (GRU/SSM) and objective (AR/MLM) |
-| **Device Selector** | CPU or MPS (Apple GPU) |
-| **Canary Gradient Toggle** | Enable/disable directional monitoring |
-| **Telemetry Chart** | Real-time visualization of gradient norm, loss, canary delta, compression ratio, and cosine alignment |
-| **Event Log** | Per-chunk breakdown with gate decisions, metrics, compression ratio, gradient alignment, and top tokens |
-| **Session Stats** | Summary of chunks processed, blocked, rolled back, and max gradient |
-| **Export JSON** | Download full event log for offline analysis |
-
-### Visual Indicators
-
-- **Green (OK)**: Update accepted, chunk learned into adapter
-- **Red (BLOCKED)**: Pre-update gate triggered, weights unchanged
-- **Orange (ROLLBACK)**: Post-update canary drift detected, weights reverted
-
-Vertical dashed lines on the chart mark blocked and rollback events for easy correlation.
+The legacy implementation is kept at `ttt/ui/legacy_dashboard.py` for reference only.
 
 ## Red Team Attack
 
@@ -325,9 +300,6 @@ python -m ttt.attacks.red_team --backbone ssm
 
 # Test against MLM objective
 python -m ttt.attacks.red_team --objective mlm
-
-# Or from the dashboard UI
-# Click the "⚔️ Red Team" button
 ```
 
 ### Attack Strategy

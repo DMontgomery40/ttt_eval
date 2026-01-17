@@ -1,3 +1,1 @@
-"""Web UI for TTT safety monitoring."""
-
-from .dashboard import app
+"""Deprecated legacy UI package (kept for backwards compatibility)."""

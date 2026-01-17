@@ -183,6 +183,7 @@ export interface SessionTreeNode {
 export type TabId =
   | 'session-tree'  // Phase 1: New home tab for navigation
   | 'overview'
+  | 'text-monitor'
   | 'weights'
   | 'transactions'
   | 'environment'

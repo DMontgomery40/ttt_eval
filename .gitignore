@@ -42,3 +42,6 @@ htmlcov/
 # Local dev
 *.log
 *.local
+
+# Phase 1 artifacts (generated)
+artifacts/
