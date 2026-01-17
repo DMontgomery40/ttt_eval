@@ -1,8 +1,0 @@
-pyproject.toml
-ttt_input_gradient_monitor.py
-ttt_eval.egg-info/PKG-INFO
-ttt_eval.egg-info/SOURCES.txt
-ttt_eval.egg-info/dependency_links.txt
-ttt_eval.egg-info/entry_points.txt
-ttt_eval.egg-info/requires.txt
-ttt_eval.egg-info/top_level.txt

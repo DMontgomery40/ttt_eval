@@ -133,6 +133,8 @@ python run_monitor.py --demo_high_entropy --disable_gate --rollback_abs_canary_d
 
 ```
 ttt_ssm_eval/
+├── .archive/                 # Archived legacy code (not maintained)
+│   └── ttt/ui/               # Old embedded dashboard (reference only)
 ├── ttt/                      # Main package
 │   ├── __init__.py           # Package exports
 │   ├── core/
@@ -146,9 +148,9 @@ ttt_ssm_eval/
 │   │   └── signals.py        # Compression ratio, gradient alignment
 │   ├── attacks/
 │   │   └── red_team.py       # Adversarial attack optimization
-│   └── ui/
-│       ├── dashboard.py      # Deprecated (use React dashboard)
-│       └── legacy_dashboard.py  # Legacy embedded UI (deprecated)
+├── ttt_ssm_nano/             # Nano SSM eval + artifacts API
+│   └── artifacts_api/        # Unified FastAPI server (Nano + Text)
+├── dashboard/                # Unified React UI (Nano + Text)
 ├── run_monitor.py            # CLI entry point
 ├── examples/                 # Red team analysis and results
 └── assets/                   # Screenshots and docs
@@ -299,7 +301,7 @@ python run_monitor.py --demo --disable_canary_grad
 
 `ttt.ui.dashboard` previously hosted an embedded HTML dashboard. It is now deprecated in favor of the unified React dashboard.
 
-The legacy implementation is kept at `ttt/ui/legacy_dashboard.py` for reference only.
+The legacy implementation is archived at `.archive/ttt/ui/legacy_dashboard.py` for reference only.
 
 ## Red Team Attack
 

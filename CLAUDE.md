@@ -237,8 +237,11 @@ Add new signals by extending `MonitorEvent` dataclass in `ttt/monitors/gradient.
 - `ttt/attacks/red_team.py`: Gumbel-Softmax adversarial optimization to find "Silent Killer" payloads.
 
 ### Dashboard
-- `ttt/ui/dashboard.py`: FastAPI backend serving monitoring API.
+- `ttt_ssm_nano/artifacts_api/`: Unified FastAPI server (Nano artifacts + Text monitor/train/generate APIs).
 - `dashboard/src/`: React/TypeScript frontend with Recharts visualization, Zustand state, Tailwind styling.
+
+Archived legacy embedded UI:
+- `.archive/ttt/ui/legacy_dashboard.py`
 
 ### Phase 0/1 Extensions
 - `ttt_ssm_nano/phase0_muon.py`: Muon optimizer with hidden-μ SSM.

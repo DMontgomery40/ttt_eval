@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${ROOT_DIR}"
 
 ARTIFACTS_ROOT="${ARTIFACTS_ROOT:-$ROOT_DIR/artifacts}"
 NANO_API_HOST="${NANO_API_HOST:-127.0.0.1}"
@@ -9,6 +10,23 @@ NANO_API_PORT="${NANO_API_PORT:-13579}"
 
 DASHBOARD_HOST="${DASHBOARD_HOST:-127.0.0.1}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-5173}"
+
+port_in_use() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -n -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+if port_in_use "${NANO_API_PORT}"; then
+  echo "[start] Port ${NANO_API_PORT} is already in use."
+  echo "[start] Stop the process listening on it, or pick a different port:"
+  echo "  NANO_API_PORT=13580 ./start.sh"
+  echo "[start] Debug (macOS): lsof -n -iTCP:${NANO_API_PORT} -sTCP:LISTEN"
+  exit 1
+fi
 
 pick_python() {
   local candidates=()
@@ -64,6 +82,26 @@ if [[ -z "${PY_BIN}" ]]; then
   exit 1
 fi
 
+http_ok() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -sf "${url}" >/dev/null 2>&1
+    return $?
+  fi
+  "${PY_BIN}" - "${url}" <<'PY'
+import sys
+import urllib.request
+
+url = sys.argv[1]
+try:
+    with urllib.request.urlopen(url, timeout=1.5) as r:
+        r.read(1)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
+
 if [[ ! -f "${ARTIFACTS_ROOT}/base/base_checkpoint.pt" ]]; then
   echo "[start] No artifacts found at ${ARTIFACTS_ROOT}. Generating a tiny demo..."
   "${PY_BIN}" "${ROOT_DIR}/ttt_ssm_nano/phase1_branching_muon.py" \
@@ -112,6 +150,22 @@ echo "[start] Starting artifacts API: http://${NANO_API_HOST}:${NANO_API_PORT}"
   --host "${NANO_API_HOST}" \
   --port "${NANO_API_PORT}" &
 API_PID=$!
+
+API_URL="http://${NANO_API_HOST}:${NANO_API_PORT}"
+for _ in {1..80}; do
+  if http_ok "${API_URL}/api/health"; then
+    break
+  fi
+  sleep 0.1
+done
+
+# Fail fast if the API isn't serving expected endpoints. This prevents confusing UI 404s.
+if ! http_ok "${API_URL}/api/text/train/jobs"; then
+  echo "[start] API started, but /api/text/train/jobs is not available at ${API_URL}."
+  echo "[start] This usually means you're connected to an older/stale server process."
+  echo "[start] Stop any existing server on ${NANO_API_PORT} and re-run ./start.sh."
+  exit 1
+fi
 
 cleanup() {
   if kill -0 "${API_PID}" >/dev/null 2>&1; then

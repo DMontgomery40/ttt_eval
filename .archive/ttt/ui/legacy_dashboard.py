@@ -1,3 +1,8 @@
+# Archived: legacy embedded dashboard implementation.
+# Use `./start.sh` to run the unified API + React dashboard.
+#
+# This file is kept for reference only.
+#
 # /// script
 # dependencies = [
 #   "fastapi",

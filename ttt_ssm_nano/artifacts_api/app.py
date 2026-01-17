@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,8 @@ def create_app(*, artifacts_root: str) -> FastAPI:
     app.state.text_run_store = TextRunStore(artifacts_root)
     app.state.text_model_store = TextModelStore(artifacts_root)
     app.state.text_lm_service = TextLmService(store=app.state.text_model_store)
-    app.state.text_train_manager = TextTrainManager(store=app.state.text_model_store, repo_root=os.getcwd())
+    repo_root = str(Path(__file__).resolve().parents[2])
+    app.state.text_train_manager = TextTrainManager(store=app.state.text_model_store, repo_root=repo_root)
 
     app.include_router(health.router)
     app.include_router(nano_artifacts.router)
