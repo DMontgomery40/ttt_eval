@@ -184,6 +184,7 @@ export type TabId =
   | 'session-tree'  // Phase 1: New home tab for navigation
   | 'overview'
   | 'text-monitor'
+  | 'chat'
   | 'weights'
   | 'transactions'
   | 'environment'

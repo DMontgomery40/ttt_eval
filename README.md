@@ -172,6 +172,27 @@ This starts:
 
 The script generates a tiny demo artifact store if `artifacts/base/base_checkpoint.pt` is missing.
 
+### Chat (BPE Tiny LM)
+
+The **Chat** tab serves a tiny local language model trained from scratch with:
+- a dependency-free byte-level **BPE** tokenizer
+- **Muon** as the default outer-loop optimizer
+
+Train a model (example corpus: this repo’s own docs):
+
+```bash
+python -m ttt.text_lm.train --corpus README.md CLAUDE.md --device mps --steps 2000
+```
+
+This writes:
+- `artifacts/text_models/index.json`
+- `artifacts/text_models/<model_id>/{tokenizer.json,config.json,checkpoint.pt,train_log.jsonl}`
+
+Then start `./start.sh` and use the **Chat** tab.
+
+To run generation on Apple Silicon GPU via the API, set:
+`TEXT_LM_DEVICE=mps ./start.sh`
+
 ### Manual start (optional)
 
 ```bash

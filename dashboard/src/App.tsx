@@ -5,6 +5,7 @@ import {
   SessionTreeTab,
   OverviewTab,
   TextMonitorTab,
+  ChatTab,
   WeightsTab,
   TransactionsTab,
   EnvironmentTab,
@@ -38,6 +39,7 @@ function App() {
             {activeTab === 'session-tree' && <SessionTreeTab />}
             {activeTab === 'overview' && <OverviewTab />}
             {activeTab === 'text-monitor' && <TextMonitorTab />}
+            {activeTab === 'chat' && <ChatTab />}
             {activeTab === 'weights' && <WeightsTab />}
             {activeTab === 'transactions' && <TransactionsTab />}
             {activeTab === 'environment' && <EnvironmentTab />}

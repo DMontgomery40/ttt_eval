@@ -35,6 +35,15 @@ python run_monitor.py --demo --disable_rollback
 # API: http://127.0.0.1:13579
 ```
 
+### Train a Tiny BPE LM (Muon)
+```bash
+# Example: train on local docs (use --device mps on Apple Silicon)
+python -m ttt.text_lm.train --corpus README.md CLAUDE.md --device mps --steps 2000
+
+# Generate from the latest trained model
+python -m ttt.text_lm.generate --prompt "Write a short paragraph about TTT."
+```
+
 ### Dashboard Development (React/TypeScript)
 ```bash
 cd dashboard
