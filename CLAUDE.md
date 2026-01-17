@@ -44,6 +44,8 @@ python -m ttt.text_lm.train --corpus README.md CLAUDE.md --device mps --steps 20
 python -m ttt.text_lm.generate --prompt "Write a short paragraph about TTT."
 ```
 
+You can also start runs from the **Train** tab in the dashboard (includes a live loss/grad chart).
+
 ### Dashboard Development (React/TypeScript)
 ```bash
 cd dashboard

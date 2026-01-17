@@ -6,6 +6,7 @@ import {
   OverviewTab,
   TextMonitorTab,
   ChatTab,
+  TextTrainTab,
   WeightsTab,
   TransactionsTab,
   EnvironmentTab,
@@ -40,6 +41,7 @@ function App() {
             {activeTab === 'overview' && <OverviewTab />}
             {activeTab === 'text-monitor' && <TextMonitorTab />}
             {activeTab === 'chat' && <ChatTab />}
+            {activeTab === 'train' && <TextTrainTab />}
             {activeTab === 'weights' && <WeightsTab />}
             {activeTab === 'transactions' && <TransactionsTab />}
             {activeTab === 'environment' && <EnvironmentTab />}

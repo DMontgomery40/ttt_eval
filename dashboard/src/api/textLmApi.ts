@@ -18,6 +18,9 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 export type TextModelSummary = {
   model_id: string;
   created_at_unix: number;
+  status?: string;
+  error?: string;
+  completed_at_unix?: number;
   checkpoint_path?: string;
   tokenizer_path?: string;
   vocab_size?: number;
@@ -49,4 +52,3 @@ export async function generateText(payload: {
     body: JSON.stringify(payload),
   });
 }
-

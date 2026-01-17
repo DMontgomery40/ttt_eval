@@ -6,6 +6,7 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: '📊' },
   { id: 'text-monitor', label: 'Text', icon: '🔤' },
   { id: 'chat', label: 'Chat', icon: '💬' },
+  { id: 'train', label: 'Train', icon: '🏋️' },
   { id: 'weights', label: 'Weights', icon: '🧠' },
   { id: 'transactions', label: 'Transactions', icon: '📝' },
   { id: 'environment', label: 'Physics', icon: '🎯' },

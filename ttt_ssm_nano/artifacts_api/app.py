@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .reader import ArtifactReader
 from .text_runs import TextRunStore
-from .routers import health, nano_actions, nano_artifacts, text_lm, text_runs
+from .routers import health, nano_actions, nano_artifacts, text_lm, text_runs, text_train
 from ttt.text_lm.store import TextModelStore
 from .text_lm_service import TextLmService
+from .text_train_manager import TextTrainManager
 
 
 def create_app(*, artifacts_root: str) -> FastAPI:
@@ -24,11 +27,13 @@ def create_app(*, artifacts_root: str) -> FastAPI:
     app.state.text_run_store = TextRunStore(artifacts_root)
     app.state.text_model_store = TextModelStore(artifacts_root)
     app.state.text_lm_service = TextLmService(store=app.state.text_model_store)
+    app.state.text_train_manager = TextTrainManager(store=app.state.text_model_store, repo_root=os.getcwd())
 
     app.include_router(health.router)
     app.include_router(nano_artifacts.router)
     app.include_router(nano_actions.router)
     app.include_router(text_runs.router)
     app.include_router(text_lm.router)
+    app.include_router(text_train.router)
 
     return app

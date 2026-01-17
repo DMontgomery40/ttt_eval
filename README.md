@@ -174,11 +174,13 @@ The script generates a tiny demo artifact store if `artifacts/base/base_checkpoi
 
 ### Chat (BPE Tiny LM)
 
-The **Chat** tab serves a tiny local language model trained from scratch with:
+The **Train** + **Chat** tabs serve a tiny local language model trained from scratch with:
 - a dependency-free byte-level **BPE** tokenizer
 - **Muon** as the default outer-loop optimizer
 
-Train a model (example corpus: this repo’s own docs):
+Start a training run:
+- via UI: open the **Train** tab and set corpus/hparams
+- via CLI (example corpus: this repo’s own docs):
 
 ```bash
 python -m ttt.text_lm.train --corpus README.md CLAUDE.md --device mps --steps 2000

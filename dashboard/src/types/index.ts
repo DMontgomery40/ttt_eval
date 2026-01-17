@@ -185,6 +185,7 @@ export type TabId =
   | 'overview'
   | 'text-monitor'
   | 'chat'
+  | 'train'
   | 'weights'
   | 'transactions'
   | 'environment'
