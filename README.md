@@ -23,6 +23,9 @@ This project provides a sandbox for understanding the "write pressure" that inpu
 - **Directional monitoring**: Canary gradient alignment catches harmful update directions
 - **Compression analysis**: Kolmogorov complexity proxy via zlib compression ratio
 
+[![TTT-SSM Architecture Infographic](./assets/infographic.png)](./assets/infographic.png)
+*TTT-SSM Architecture Overview*
+
 ## Concept
 
 A small "memory module" (adapter layer) is the only component updated at test time. Each chunk of input triggers a TTT update step. The monitor tracks:
@@ -149,6 +152,33 @@ ttt_ssm_eval/
 ├── examples/                 # Red team analysis and results
 └── assets/                   # Screenshots and docs
 ```
+
+## Phase 1 Nano Dashboard (Real Artifacts)
+
+The React dashboard under `dashboard/` is designed to visualize the on-disk artifact store produced by
+`ttt_ssm_nano/phase1_branching_muon.py` (branching sessions + transaction semantics).
+
+### 1) Generate artifacts
+
+Use the Phase 1 script to create `artifacts/` (base + sessions + runs). See:
+- `ttt_ssm_nano/phase_1_runnable_implementation.md`
+
+### 2) Start the artifacts API
+
+```bash
+python -m pip install fastapi uvicorn pydantic
+python -m ttt_ssm_nano.artifacts_api --artifacts_root artifacts --port 8000
+```
+
+### 3) Start the React dashboard
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+If your API is not on `http://127.0.0.1:8000`, set `VITE_NANO_API_URL` when running Vite.
 
 ## Installation
 

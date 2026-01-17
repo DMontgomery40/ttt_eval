@@ -12,7 +12,7 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
 ];
 
 export function Header() {
-  const { activeTab, setActiveTab, currentSession } = useDashboardStore();
+  const { activeTab, setActiveTab, currentSession, dataSource, isLoading, loadError } = useDashboardStore();
 
   return (
     <header className="bg-surface-50 border-b border-surface-200">
@@ -36,12 +36,21 @@ export function Header() {
 
         {/* Status indicator */}
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
-          <span className="text-sm text-text-secondary">
-            μ = {currentSession.meta.mu.toFixed(4)}
+          <div
+            className={`w-2 h-2 rounded-full ${isLoading ? 'bg-accent-orange animate-pulse' : 'bg-accent-green'}`}
+          />
+          <span className="text-xs px-2 py-1 rounded bg-surface-100 border border-surface-200 text-text-muted">
+            {dataSource === 'api' ? 'artifacts' : 'mock'}
           </span>
+          <span className="text-sm text-text-secondary">μ = {currentSession.meta.mu.toFixed(4)}</span>
         </div>
       </div>
+
+      {loadError && dataSource !== 'api' && (
+        <div className="px-6 pb-3 text-xs text-accent-orange">
+          API unavailable, showing mock data: {loadError}
+        </div>
+      )}
 
       {/* Tab navigation */}
       <nav className="flex px-4 gap-1">

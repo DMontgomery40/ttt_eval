@@ -14,7 +14,7 @@ function getNodeColor(_node: SessionTreeNode, rootIndex: number): string {
 interface TreeNodeProps {
   node: SessionTreeNode;
   rootIndex: number;
-  isSelected: boolean;
+  selectedSessionId: string;
   onSelect: (sessionId: string) => void;
   onFork: (sessionId: string) => void;
   collapsed: Set<string>;
@@ -25,7 +25,7 @@ interface TreeNodeProps {
 function TreeNode({
   node,
   rootIndex,
-  isSelected,
+  selectedSessionId,
   onSelect,
   onFork,
   collapsed,
@@ -35,6 +35,7 @@ function TreeNode({
   const isCollapsed = collapsed.has(node.session.session_id);
   const hasChildren = node.children.length > 0;
   const color = getNodeColor(node, rootIndex);
+  const isSelected = selectedSessionId === node.session.session_id;
 
   return (
     <div className="tree-node">
@@ -154,7 +155,7 @@ function TreeNode({
               key={child.session.session_id}
               node={child}
               rootIndex={rootIndex}
-              isSelected={isSelected && child.session.session_id === node.session.session_id}
+              selectedSessionId={selectedSessionId}
               onSelect={onSelect}
               onFork={onFork}
               collapsed={collapsed}
@@ -352,7 +353,7 @@ export function SessionTreeTab() {
               <TreeNode
                 node={root}
                 rootIndex={idx}
-                isSelected={currentSession.meta.session_id === root.session.session_id}
+                selectedSessionId={currentSession.meta.session_id}
                 onSelect={handleSelect}
                 onFork={handleFork}
                 collapsed={collapsed}

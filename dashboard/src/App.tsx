@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useDashboardStore } from './store';
 import { Header } from './components/layout/Header';
 import {
@@ -12,7 +13,12 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 function App() {
-  const { activeTab } = useDashboardStore();
+  const activeTab = useDashboardStore((state) => state.activeTab);
+  const initialize = useDashboardStore((state) => state.initialize);
+
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "sessions": {
+    "s1": {
+      "created_at_unix": 1768677456,
+      "env_mode": "linear",
+      "last_run_at_unix": 1768677474,
+      "model_signature": "42afee176a25ab9fef7732d871ffc85847ad1c7c0390de265ee497e95fb954e9",
+      "mu": 0.12,
+      "parent_session_id": null,
+      "root_session_id": "s1",
+      "session_id": "s1"
+    },
+    "s1b": {
+      "created_at_unix": 1768677490,
+      "env_mode": "linear",
+      "last_run_at_unix": null,
+      "model_signature": "42afee176a25ab9fef7732d871ffc85847ad1c7c0390de265ee497e95fb954e9",
+      "mu": 0.12,
+      "parent_session_id": "s1",
+      "root_session_id": "s1",
+      "session_id": "s1b"
+    }
+  }
+}
