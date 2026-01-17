@@ -301,6 +301,16 @@ export function TextTrainTab() {
               />
             </label>
             <label className="text-xs text-text-muted">
+              Weight decay
+              <input
+                type="number"
+                step="0.0001"
+                value={weightDecay}
+                onChange={(e) => setWeightDecay(Math.max(0, Number(e.target.value) || 0))}
+                className="mt-1 w-full bg-surface-100 border border-surface-200 rounded px-2 py-1 text-xs font-mono"
+              />
+            </label>
+            <label className="text-xs text-text-muted">
               Momentum
               <input
                 type="number"
