@@ -10,6 +10,7 @@ import torch
 from ttt.text_lm.context import ContextConfig, create_context_net
 from ttt.text_lm.session_store import TextSessionStore
 from ttt.text_lm.ttt_chat import adapt_context_on_tokens, generate_with_context
+from ttt.core.model import DEFAULT_CANARY_TEXT
 
 from .text_lm_service import LoadedTextModel, TextLmService
 
@@ -159,6 +160,13 @@ class TextChatService:
         ctx = ctx.to(self._device)
 
         ids = tok.encode(prompt, add_bos=True, add_eos=False)
+        canary_token_ids_list = None
+        if bool(getattr(context_cfg, "spfw_enabled", False)):
+            texts = list(getattr(context_cfg, "canary_texts", []) or [])
+            if not texts:
+                texts = [DEFAULT_CANARY_TEXT]
+            canary_token_ids_list = [tok.encode(t, add_bos=True, add_eos=True) for t in texts]
+
         update_events, new_opt_state = adapt_context_on_tokens(
             model=model,
             context=ctx,
@@ -166,6 +174,7 @@ class TextChatService:
             cfg=context_cfg,
             device=self._device,
             optimizer_state=(opt_state if isinstance(opt_state, dict) else None),
+            canary_token_ids_list=canary_token_ids_list,
         )
 
         out_ids = generate_with_context(

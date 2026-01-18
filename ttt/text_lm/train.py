@@ -34,6 +34,14 @@ def _collect_corpus_files(
     corpus_dirs: Sequence[str],
     allowed_exts: Sequence[str] = (".txt", ".md", ".text", ".tex", ".rst"),
 ) -> list[str]:
+    def _is_lfs_pointer(path: str) -> bool:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                first = f.readline().strip()
+            return first == "version https://git-lfs.github.com/spec/v1"
+        except Exception:
+            return False
+
     files: list[str] = []
 
     for p in corpus_paths:
@@ -50,12 +58,19 @@ def _collect_corpus_files(
             continue
         if not os.path.isdir(d):
             raise FileNotFoundError(f"Corpus dir not found: {d}")
-        for root, _, names in os.walk(d):
+        for root, dirs, names in os.walk(d):
+            # Avoid accidentally ingesting git metadata or other hidden dirs.
+            dirs[:] = [x for x in dirs if not x.startswith(".") and x not in ("__pycache__", "node_modules")]
             for name in names:
-                ext = os.path.splitext(name)[1].lower()
-                if ext and ext not in allowed_exts:
+                if name.startswith("."):
                     continue
-                files.append(os.path.join(root, name))
+                ext = os.path.splitext(name)[1].lower()
+                if ext not in allowed_exts:
+                    continue
+                candidate = os.path.join(root, name)
+                if _is_lfs_pointer(candidate):
+                    continue
+                files.append(candidate)
 
     out = sorted(set(os.path.abspath(f) for f in files))
     if not out:

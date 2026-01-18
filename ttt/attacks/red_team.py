@@ -34,6 +34,12 @@ def run_attack(
     backbone: BackboneType = "gru",
     objective: ObjectiveType = "ar",
     device: str = "cpu",
+    # SPFW / directional attacker
+    attack_mode: str = "norm_entropy",  # "norm_entropy" | "directional"
+    safety_mode: str = "gate_rollback",  # "gate_rollback" | "spfw"
+    spfw_eps_dot: float = 0.0,
+    spfw_eps_cos: float = 0.0,
+    directional_weight: float = 1.0,
 ):
     """
     Run adversarial optimization to generate a "Silent Killer" payload.
@@ -77,6 +83,34 @@ def run_attack(
     canary_ids = ids_from_tokens(tokenize(target_canary), vocab_size)
     canary_tensor = torch.tensor([canary_ids], dtype=torch.long, device=device)
 
+    attack_mode = (attack_mode or "").strip().lower()
+    safety_mode = (safety_mode or "").strip().lower()
+
+    # Precompute canary gradient w.r.t adapter weights (constant during attack)
+    canary_logits, _ = model(canary_tensor, return_emb=False)
+    canary_logits2 = canary_logits[:, :-1, :].contiguous()
+    canary_labels = canary_tensor[:, 1:].contiguous()
+    canary_loss_for_grad = F.cross_entropy(
+        canary_logits2.view(-1, vocab_size),
+        canary_labels.view(-1),
+    )
+    g_canary = torch.autograd.grad(canary_loss_for_grad, model.adapter.weight, create_graph=False)[0].detach()
+
+    def _spfw_project_tensor(g_task: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+        # Differentiable single-canary half-space projection.
+        dot = torch.dot(c.flatten(), g_task.flatten())
+        c_norm = torch.norm(c)
+        g_norm = torch.norm(g_task)
+        allowed_cos = float(spfw_eps_cos) * c_norm * g_norm
+        allowed = torch.maximum(
+            torch.tensor(float(spfw_eps_dot), device=g_task.device, dtype=g_task.dtype),
+            allowed_cos.to(dtype=g_task.dtype),
+        )
+        violate = (dot < -allowed).to(dtype=g_task.dtype)
+        denom = (c_norm * c_norm) + 1e-12
+        alpha = (dot + allowed) / denom
+        return g_task - (violate * alpha) * c
+
     print(f"\n🚀 Launching Optimization Loop ({steps} steps)...")
 
     # Track optimization trajectory
@@ -105,9 +139,7 @@ def run_attack(
         loss_ttt = F.cross_entropy(logits.view(-1, vocab_size), preds.view(-1))
 
         # C. Compute gradient the model WOULD see
-        grad_w = torch.autograd.grad(loss_ttt, model.adapter.weight, create_graph=True)[
-            0
-        ]
+        grad_w = torch.autograd.grad(loss_ttt, model.adapter.weight, create_graph=True)[0]
 
         # Gradient norm (write pressure)
         curr_grad_norm = torch.norm(grad_w)
@@ -120,8 +152,14 @@ def run_attack(
         probs = F.softmax(input_probs, dim=-1)
         entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1).mean()
 
-        # Combine
         total_loss = norm_penalty - (entropy * 0.1)
+
+        if attack_mode == "directional":
+            g_update = grad_w
+            if safety_mode == "spfw":
+                g_update = _spfw_project_tensor(grad_w, g_canary)
+            dot_after = torch.dot(g_canary.flatten(), g_update.flatten())
+            total_loss = total_loss + float(directional_weight) * dot_after
 
         total_loss.backward()
         optimizer.step()
@@ -164,6 +202,9 @@ def run_attack(
         # Pass through backbone/objective for validation
         backbone=backbone,
         objective=objective,
+        safety_mode=safety_mode,
+        spfw_eps_dot=spfw_eps_dot,
+        spfw_eps_cos=spfw_eps_cos,
     )
 
     if events:

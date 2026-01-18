@@ -30,6 +30,7 @@ from ..core.backbone import BackboneType
 from ..core.objective import ObjectiveType, compute_objective_loss
 from ..core.gate import check_gate
 from ..core.rollback import compute_canary_loss, robust_zscore
+from ..core.spfw import project_into_safe_subspace, write_grads_inplace, zero_grads_inplace
 from .signals import (
     compute_compression_ratio,
     compute_canary_gradient,
@@ -77,6 +78,19 @@ class MonitorEvent:
     canary_grad_norm: Optional[float] = None
     grad_canary_cos: Optional[float] = None  # Cosine similarity
     grad_canary_dot: Optional[float] = None  # Dot product
+    # SPFW (Safety-Projected Fast Weights) metrics
+    spfw_enabled: bool = False
+    spfw_eps_dot: Optional[float] = None
+    spfw_eps_cos: Optional[float] = None
+    spfw_passes: Optional[int] = None
+    spfw_canaries: Optional[int] = None
+    spfw_min_canary_dot_before: Optional[float] = None
+    spfw_min_canary_dot_after: Optional[float] = None
+    spfw_violations_before: Optional[int] = None
+    spfw_violations_after: Optional[int] = None
+    spfw_proj_removed_ratio: Optional[float] = None
+    spfw_write_suppressed: bool = False
+    spfw_lr_eff: Optional[float] = None
 
 
 def run_monitor(
@@ -112,6 +126,14 @@ def run_monitor(
     # Canary gradient alignment monitoring
     enable_canary_grad: bool = True,
     canary_grad_every: int = 1,
+    # SPFW (project updates into safe subspace)
+    safety_mode: str = "gate_rollback",  # "gate_rollback" | "spfw"
+    spfw_eps_dot: float = 0.0,
+    spfw_eps_cos: float = 0.0,
+    spfw_passes: int = 1,
+    spfw_stall_ratio: float = 0.99,
+    spfw_gate_scale: float = 0.1,
+    canary_texts: Optional[List[str]] = None,
 ) -> List[MonitorEvent]:
     """
     Run TTT monitoring on input text.
@@ -123,6 +145,13 @@ def run_monitor(
         mlm_prob: Mask probability for MLM objective
         enable_canary_grad: Compute canary gradient alignment
         canary_grad_every: Recompute canary gradient every N chunks
+        safety_mode: "gate_rollback" (default) or "spfw" (project gradients then step)
+        spfw_eps_dot: Absolute dot slack for constraints
+        spfw_eps_cos: Cosine slack for constraints (scale-aware)
+        spfw_passes: Projection passes over canaries
+        spfw_stall_ratio: If projection removes > this fraction, suppress write
+        spfw_gate_scale: If gate triggers, scale LR by this factor (SPFW mode)
+        canary_texts: Optional list of canary texts (defaults to [canary_text])
 
     Returns a list of MonitorEvent objects, one per chunk.
     """
@@ -145,18 +174,33 @@ def run_monitor(
     tokens = tokenize(text)
     ids = ids_from_tokens(tokens, vocab_size)
 
-    # Canary setup for rollback drift detection
-    canary_input_ids: Optional[torch.Tensor] = None
-    if enable_rollback or enable_canary_grad:
+    safety_mode = (safety_mode or "").strip().lower()
+    spfw_enabled = safety_mode == "spfw"
+
+    # Canary setup for rollback drift detection (single canary)
+    rollback_canary_input_ids: Optional[torch.Tensor] = None
+    if enable_rollback:
         canary_tokens = tokenize(canary_text)
         canary_ids = ids_from_tokens(canary_tokens, vocab_size)
         if len(canary_ids) < 8:
             canary_ids = (canary_ids * 8)[:8] if canary_ids else [0] * 8
-        canary_input_ids = torch.tensor([canary_ids], dtype=torch.long, device=device)
+        rollback_canary_input_ids = torch.tensor([canary_ids], dtype=torch.long, device=device)
+
+    # Canary set for gradient alignment + SPFW projection (possibly multiple)
+    if canary_texts is None or len(canary_texts) == 0:
+        canary_texts = [canary_text]
+    canary_grad_input_ids: List[torch.Tensor] = []
+    if enable_canary_grad or spfw_enabled:
+        for ct in canary_texts:
+            toks = tokenize(ct)
+            ids2 = ids_from_tokens(toks, vocab_size)
+            if len(ids2) < 8:
+                ids2 = (ids2 * 8)[:8] if ids2 else [0] * 8
+            canary_grad_input_ids.append(torch.tensor([ids2], dtype=torch.long, device=device))
 
     # Canary gradient for directional alignment (computed periodically)
-    cached_canary_grad: Optional[torch.Tensor] = None
-    cached_canary_grad_norm: float = 0.0
+    cached_canary_grads: List[torch.Tensor] = []
+    cached_canary_grad_norm: float = 0.0  # norm of first canary (back-compat)
 
     grad_history: List[float] = []
     update_history: List[float] = []
@@ -194,20 +238,20 @@ def run_monitor(
         canary_delta: Optional[float] = None
         canary_delta_z: Optional[float] = None
 
-        # Update cached canary gradient periodically
-        if (
-            enable_canary_grad
-            and canary_input_ids is not None
-            and (chunk_count % max(1, canary_grad_every) == 0)
+        # Update cached canary gradients periodically
+        if (enable_canary_grad or spfw_enabled) and canary_grad_input_ids and (
+            chunk_count % max(1, canary_grad_every) == 0
         ):
-            cached_canary_grad = compute_canary_gradient(
-                model, canary_input_ids, vocab_size
+            cached_canary_grads = [
+                compute_canary_gradient(model, cids, vocab_size) for cids in canary_grad_input_ids
+            ]
+            cached_canary_grad_norm = (
+                get_canary_grad_norm(cached_canary_grads[0]) if cached_canary_grads else 0.0
             )
-            cached_canary_grad_norm = get_canary_grad_norm(cached_canary_grad)
 
         # Measure canary before any updates in this chunk
-        if enable_rollback and canary_input_ids is not None:
-            canary_loss_before = compute_canary_loss(model, canary_input_ids, vocab_size)
+        if enable_rollback and rollback_canary_input_ids is not None:
+            canary_loss_before = compute_canary_loss(model, rollback_canary_input_ids, vocab_size)
 
         for _ in range(ttt_steps_per_chunk):
             opt.zero_grad(set_to_none=True)
@@ -229,10 +273,10 @@ def run_monitor(
             grad_norm = float(model.adapter.weight.grad.detach().norm().item())
 
             # Compute gradient alignment with canary
-            if enable_canary_grad and cached_canary_grad is not None:
+            if enable_canary_grad and cached_canary_grads:
                 chunk_grad = model.adapter.weight.grad.detach().clone()
                 grad_canary_cos, grad_canary_dot = compute_gradient_alignment(
-                    chunk_grad, cached_canary_grad
+                    chunk_grad, cached_canary_grads[0]
                 )
 
             # Per-token influence proxy
@@ -253,9 +297,57 @@ def run_monitor(
             # Snapshot weights before update
             old = model.adapter.weight.detach().clone()
 
-            if not enable_gate or gate_decision.allow_update:
-                # Apply update
+            # --- Apply update (gate/rollback policy vs SPFW) ---
+            lr_eff = float(lr)
+            spfw_write_suppressed = False
+            spfw_stats = None
+
+            if spfw_enabled:
+                # Gate becomes an LR throttle (soft prior)
+                if enable_gate and not gate_decision.allow_update:
+                    lr_eff *= float(spfw_gate_scale)
+
+                # Project task grad into safe subspace defined by canary grads
+                if cached_canary_grads:
+                    g_task = [model.adapter.weight.grad.detach().clone()]
+                    canary_lists = [[g.detach().clone()] for g in cached_canary_grads]
+                    g_safe, spfw_stats = project_into_safe_subspace(
+                        g_task,
+                        canary_lists,
+                        eps_dot=float(spfw_eps_dot),
+                        eps_cos=float(spfw_eps_cos),
+                        passes=int(spfw_passes),
+                    )
+                    write_grads_inplace([model.adapter.weight], g_safe)
+
+                    if spfw_stats.proj_removed_ratio >= float(spfw_stall_ratio):
+                        spfw_write_suppressed = True
+                        lr_eff = 0.0
+                        zero_grads_inplace([model.adapter.weight])
+
+                if lr_eff <= 0.0:
+                    update_skipped = True
+                    # Ensure no optimizer state updates from adversarial grads.
+                    zero_grads_inplace([model.adapter.weight])
+
+                # Temporarily override optimizer lr for this step
+                old_lrs = [float(pg.get("lr", lr_eff)) for pg in opt.param_groups]
+                for pg in opt.param_groups:
+                    pg["lr"] = float(lr_eff)
+
                 opt.step()
+
+                # Restore original optimizer lrs
+                for pg, old_lr in zip(opt.param_groups, old_lrs):
+                    pg["lr"] = float(old_lr)
+            else:
+                # Original behavior: gate hard-blocks updates
+                if not enable_gate or gate_decision.allow_update:
+                    opt.step()
+                else:
+                    update_skipped = True
+
+            if not update_skipped:
                 step_update_norm = float(
                     (model.adapter.weight.detach() - old).norm().item()
                 )
@@ -264,11 +356,11 @@ def run_monitor(
                 # --- Post-update rollback check ---
                 if (
                     enable_rollback
-                    and canary_input_ids is not None
+                    and rollback_canary_input_ids is not None
                     and canary_loss_before is not None
                 ):
                     canary_after_step = compute_canary_loss(
-                        model, canary_input_ids, vocab_size
+                        model, rollback_canary_input_ids, vocab_size
                     )
                     step_delta = canary_after_step - canary_loss_before
                     step_delta_z = robust_zscore(
@@ -306,8 +398,6 @@ def run_monitor(
                 else:
                     # Rollback disabled, just count the update
                     update_norm += step_update_norm
-            else:
-                update_skipped = True
 
         # Robust scores relative to recent history
         grad_z = robust_zscore(grad_norm, grad_history[-history_window:])
@@ -375,6 +465,18 @@ def run_monitor(
                 canary_grad_norm=cached_canary_grad_norm if enable_canary_grad else None,
                 grad_canary_cos=grad_canary_cos,
                 grad_canary_dot=grad_canary_dot,
+                spfw_enabled=spfw_enabled,
+                spfw_eps_dot=float(spfw_eps_dot) if spfw_enabled else None,
+                spfw_eps_cos=float(spfw_eps_cos) if spfw_enabled else None,
+                spfw_passes=int(spfw_passes) if spfw_enabled else None,
+                spfw_canaries=int(len(cached_canary_grads)) if (spfw_enabled and cached_canary_grads) else None,
+                spfw_min_canary_dot_before=(spfw_stats.min_dot_before if spfw_stats else None),
+                spfw_min_canary_dot_after=(spfw_stats.min_dot_after if spfw_stats else None),
+                spfw_violations_before=(spfw_stats.violations_before if spfw_stats else None),
+                spfw_violations_after=(spfw_stats.violations_after if spfw_stats else None),
+                spfw_proj_removed_ratio=(spfw_stats.proj_removed_ratio if spfw_stats else None),
+                spfw_write_suppressed=bool(spfw_write_suppressed),
+                spfw_lr_eff=float(lr_eff) if spfw_enabled else None,
             )
         )
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,6 +14,7 @@ router = APIRouter()
 
 class CreateTextSessionRequest(BaseModel):
     model_id: Optional[str] = None
+    kind: Literal["linear", "fast_lowrank_mem"] = "linear"
 
     # Fast context net defaults (Muon)
     lr: float = Field(default=0.02, gt=0.0, le=10.0)
@@ -23,6 +24,19 @@ class CreateTextSessionRequest(BaseModel):
 
     steps_per_message: int = Field(default=1, ge=1, le=128)
     chunk_tokens: int = Field(default=128, ge=8, le=8192)
+
+    # Fast memory geometry (only for kind=fast_lowrank_mem)
+    d_mem: int = Field(default=64, ge=4, le=1024)
+    mem_rank: int = Field(default=8, ge=1, le=256)
+
+    # SPFW: Safety-Projected Fast Weights
+    spfw_enabled: bool = Field(default=False)
+    spfw_eps_dot: float = Field(default=0.0, ge=0.0)
+    spfw_eps_cos: float = Field(default=0.0, ge=0.0, le=1.0)
+    spfw_passes: int = Field(default=1, ge=1, le=8)
+    spfw_stall_ratio: float = Field(default=0.99, ge=0.0, le=1.0)
+    canary_grad_every: int = Field(default=1, ge=1, le=64)
+    canary_texts: List[str] = Field(default_factory=list)
 
 
 @router.get("/api/text/sessions")
@@ -43,12 +57,22 @@ def create_session(
 ) -> dict:
     try:
         cfg = ContextConfig(
+            kind=req.kind,
             lr=float(req.lr),
             weight_decay=float(req.weight_decay),
             momentum=float(req.momentum),
             ns_steps=int(req.ns_steps),
             steps_per_message=int(req.steps_per_message),
             chunk_tokens=int(req.chunk_tokens),
+            d_mem=int(req.d_mem),
+            mem_rank=int(req.mem_rank),
+            spfw_enabled=bool(req.spfw_enabled),
+            spfw_eps_dot=float(req.spfw_eps_dot),
+            spfw_eps_cos=float(req.spfw_eps_cos),
+            spfw_passes=int(req.spfw_passes),
+            spfw_stall_ratio=float(req.spfw_stall_ratio),
+            canary_grad_every=int(req.canary_grad_every),
+            canary_texts=list(req.canary_texts or []),
         )
         return svc.create_session(model_id=req.model_id, context_cfg=cfg)
     except FileNotFoundError as e:
@@ -102,4 +126,3 @@ def reset(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

@@ -23,6 +23,14 @@ export function ChatTab() {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Latency tracking
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number>(0);
+
+  // Response metadata
+  const [updateEvents, setUpdateEvents] = useState<any[]>([]);
+  const [generatedTokens, setGeneratedTokens] = useState<number>(0);
+
   // Context-net (TTT) defaults for new sessions.
   const [contextLr, setContextLr] = useState(0.02);
   const [stepsPerMessage, setStepsPerMessage] = useState(1);
@@ -61,6 +69,17 @@ export function ChatTab() {
     void refreshSessions();
   }, []);
 
+  // Live timer while running
+  useEffect(() => {
+    if (!isRunning || !startTime) return;
+
+    const interval = setInterval(() => {
+      setElapsedMs(Date.now() - startTime);
+    }, 50); // Update every 50ms for smooth animation
+
+    return () => clearInterval(interval);
+  }, [isRunning, startTime]);
+
   const canRun = useMemo(() => {
     return !isRunning && prompt.trim().length > 0;
   }, [isRunning, prompt]);
@@ -89,6 +108,13 @@ export function ChatTab() {
     setIsRunning(true);
     setError(null);
     setOutput('');
+    setUpdateEvents([]);
+    setGeneratedTokens(0);
+
+    // Start timer
+    const start = Date.now();
+    setStartTime(start);
+    setElapsedMs(0);
 
     try {
       const sid = selectedSessionId || (await createSession());
@@ -99,9 +125,19 @@ export function ChatTab() {
         temperature,
         top_k: topK,
       });
+
+      // Stop timer
+      const end = Date.now();
+      setElapsedMs(end - start);
+
+      // Capture response data
       setOutput(res.completion || res.text || '');
+      setUpdateEvents(res.update_events || []);
+      setGeneratedTokens((res.completion || res.text || '').split(/\s+/).filter(Boolean).length);
     } catch (e: any) {
       setError(e?.message || String(e));
+      const end = Date.now();
+      setElapsedMs(end - start);
     } finally {
       setIsRunning(false);
     }
@@ -265,29 +301,170 @@ export function ChatTab() {
           </div>
         </div>
 
-        {/* Output */}
-        <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
+        {/* Output + Stats */}
+        <div className="bg-surface-50 border border-surface-200 rounded-lg p-4 space-y-4">
+          <div className="flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-text-primary">Output</h3>
               <p className="text-xs text-text-muted mt-1">
                 Train a core model first with <span className="font-mono">python -m ttt.text_lm.train</span> (or the Train tab).
               </p>
             </div>
+            {/* Live latency counter */}
+            {isRunning && startTime && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center gap-2 bg-accent-blue/20 px-3 py-1.5 rounded-lg"
+              >
+                <div className="w-2 h-2 bg-accent-blue rounded-full animate-pulse" />
+                <span className="font-mono text-sm text-accent-blue font-bold">
+                  {(elapsedMs / 1000).toFixed(2)}s
+                </span>
+              </motion.div>
+            )}
           </div>
 
           {!output ? (
-            <div className="text-sm text-text-muted flex items-center justify-center h-64">
-              {isRunning ? 'Generating…' : 'No output yet.'}
+            <div className="text-sm text-text-muted flex flex-col items-center justify-center h-64 gap-3">
+              {isRunning ? (
+                <>
+                  <div className="text-accent-blue font-medium">Generating response...</div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-accent-blue rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="w-2 h-2 bg-accent-blue rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="w-2 h-2 bg-accent-blue rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <div className="text-xs text-text-muted">
+                    Elapsed: <span className="font-mono text-accent-blue">{(elapsedMs / 1000).toFixed(2)}s</span>
+                  </div>
+                </>
+              ) : (
+                'No output yet.'
+              )}
             </div>
           ) : (
-            <motion.pre
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-surface-100 border border-surface-200 rounded-lg p-3 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-[520px] overflow-y-auto"
-            >
-              {output}
-            </motion.pre>
+            <>
+              {/* Output text */}
+              <motion.pre
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-surface-100 border border-surface-200 rounded-lg p-3 text-xs text-text-primary whitespace-pre-wrap font-mono max-h-64 overflow-y-auto"
+              >
+                {output}
+              </motion.pre>
+
+              {/* Comprehensive statistics */}
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-text-primary">Generation Statistics</h4>
+                  <span className="text-xs text-text-muted">
+                    Total latency: <span className="font-mono text-accent-green font-bold">{(elapsedMs / 1000).toFixed(3)}s</span>
+                  </span>
+                </div>
+
+                {/* Stats grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  {/* Latency */}
+                  <div className="bg-surface-100 rounded-lg p-2">
+                    <div className="text-xs text-text-muted mb-1">Total Time</div>
+                    <div className="font-mono text-sm text-accent-blue">
+                      {(elapsedMs / 1000).toFixed(3)}s
+                    </div>
+                  </div>
+
+                  {/* Words generated */}
+                  <div className="bg-surface-100 rounded-lg p-2">
+                    <div className="text-xs text-text-muted mb-1">Words</div>
+                    <div className="font-mono text-sm text-accent-purple">
+                      {generatedTokens}
+                    </div>
+                  </div>
+
+                  {/* Speed */}
+                  <div className="bg-surface-100 rounded-lg p-2">
+                    <div className="text-xs text-text-muted mb-1">Words/sec</div>
+                    <div className="font-mono text-sm text-accent-green">
+                      {elapsedMs > 0 ? ((generatedTokens / elapsedMs) * 1000).toFixed(1) : '—'}
+                    </div>
+                  </div>
+
+                  {/* TTT updates */}
+                  <div className="bg-surface-100 rounded-lg p-2">
+                    <div className="text-xs text-text-muted mb-1">TTT Updates</div>
+                    <div className="font-mono text-sm text-accent-gold">
+                      {updateEvents.length}
+                    </div>
+                  </div>
+
+                  {/* Avg loss */}
+                  <div className="bg-surface-100 rounded-lg p-2">
+                    <div className="text-xs text-text-muted mb-1">Avg Loss</div>
+                    <div className="font-mono text-sm text-text-primary">
+                      {updateEvents.length > 0
+                        ? (updateEvents.reduce((sum, e) => sum + (e.loss || 0), 0) / updateEvents.length).toFixed(4)
+                        : '—'}
+                    </div>
+                  </div>
+
+                  {/* Avg grad norm */}
+                  <div className="bg-surface-100 rounded-lg p-2">
+                    <div className="text-xs text-text-muted mb-1">Avg Grad</div>
+                    <div className="font-mono text-sm text-accent-blue">
+                      {updateEvents.length > 0
+                        ? (updateEvents.reduce((sum, e) => sum + (e.grad_norm || 0), 0) / updateEvents.length).toFixed(4)
+                        : '—'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* TTT Update Events Table */}
+                {updateEvents.length > 0 && (
+                  <div className="bg-surface-100 rounded-lg p-3">
+                    <div className="text-xs font-semibold text-text-primary mb-2">TTT Adaptation Details</div>
+                    <div className="max-h-32 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-surface-200 text-text-muted sticky top-0">
+                          <tr>
+                            <th className="px-2 py-1 text-left">Chunk</th>
+                            <th className="px-2 py-1 text-left">Tokens</th>
+                            <th className="px-2 py-1 text-right">Step</th>
+                            <th className="px-2 py-1 text-right">Loss</th>
+                            <th className="px-2 py-1 text-right">Grad</th>
+                            <th className="px-2 py-1 text-right">Update</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-surface-200">
+                          {updateEvents.map((evt, idx) => (
+                            <tr key={idx} className="hover:bg-surface-50">
+                              <td className="px-2 py-1 font-mono text-accent-gold">#{evt.chunk_index}</td>
+                              <td className="px-2 py-1 font-mono text-text-secondary">
+                                {evt.token_start}–{evt.token_end}
+                              </td>
+                              <td className="px-2 py-1 font-mono text-right text-accent-blue">{evt.step_in_chunk}</td>
+                              <td className="px-2 py-1 font-mono text-right text-accent-purple">
+                                {evt.loss?.toFixed(4) || '—'}
+                              </td>
+                              <td className="px-2 py-1 font-mono text-right text-accent-green">
+                                {evt.grad_norm?.toFixed(4) || '—'}
+                              </td>
+                              <td className="px-2 py-1 font-mono text-right text-accent-orange">
+                                {evt.update_norm?.toFixed(4) || '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </>
           )}
         </div>
       </div>

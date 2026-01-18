@@ -26,6 +26,14 @@ class RunTextMonitorRequest(BaseModel):
     enable_canary_grad: bool = True
     canary_grad_every: int = Field(default=1, ge=1, le=64)
 
+    safety_mode: Literal["gate_rollback", "spfw"] = "gate_rollback"
+    spfw_eps_dot: float = Field(default=0.0, ge=0.0)
+    spfw_eps_cos: float = Field(default=0.0, ge=0.0, le=1.0)
+    spfw_passes: int = Field(default=1, ge=1, le=8)
+    spfw_stall_ratio: float = Field(default=0.99, ge=0.0, le=1.0)
+    spfw_gate_scale: float = Field(default=0.1, ge=0.0, le=1.0)
+    spfw_canary_texts: List[str] = Field(default_factory=list)
+
     abs_grad_norm_threshold: float = Field(default=2.5, gt=0.0)
     abs_update_norm_threshold: float = Field(default=0.05, gt=0.0)
     robust_z_threshold: float = Field(default=6.0, gt=0.0)
@@ -65,6 +73,13 @@ def run_text_monitor(req: RunTextMonitorRequest) -> Dict[str, Any]:
         mlm_prob=req.mlm_prob,
         enable_canary_grad=req.enable_canary_grad,
         canary_grad_every=req.canary_grad_every,
+        safety_mode=req.safety_mode,
+        spfw_eps_dot=req.spfw_eps_dot,
+        spfw_eps_cos=req.spfw_eps_cos,
+        spfw_passes=req.spfw_passes,
+        spfw_stall_ratio=req.spfw_stall_ratio,
+        spfw_gate_scale=req.spfw_gate_scale,
+        canary_texts=(req.spfw_canary_texts if req.spfw_canary_texts else None),
     )
 
     events_dicts: List[Dict[str, Any]] = [asdict(e) for e in events]

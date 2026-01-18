@@ -81,6 +81,13 @@ def print_report(events: List[MonitorEvent], *, max_events: int = 9999) -> None:
         dot_str = format_float(e.grad_canary_dot)
         canary_g_str = format_float(e.canary_grad_norm)
         print(f"  cr={cr_str}  canary_g={canary_g_str}  cos={cos_str}  dot={dot_str}")
+        if getattr(e, "spfw_enabled", False):
+            removed = format_float(getattr(e, "spfw_proj_removed_ratio", None))
+            md0 = format_float(getattr(e, "spfw_min_canary_dot_before", None))
+            md1 = format_float(getattr(e, "spfw_min_canary_dot_after", None))
+            lr_eff = format_float(getattr(e, "spfw_lr_eff", None))
+            suppressed = "YES" if getattr(e, "spfw_write_suppressed", False) else "no"
+            print(f"  spfw: removed={removed}  min_dot={md0}->{md1}  lr_eff={lr_eff}  suppressed={suppressed}")
 
         print(f"  gate: {gate}  entropy={e.token_entropy:.2f}  diversity={e.token_diversity:.2f}")
         if e.gate_reasons:
@@ -228,6 +235,41 @@ def main() -> None:
         help="Recompute canary gradient every N chunks (default: 1)",
     )
 
+    # SPFW (Safety-Projected Fast Weights)
+    p.add_argument(
+        "--safety_mode",
+        type=str,
+        choices=["gate_rollback", "spfw"],
+        default="gate_rollback",
+        help="Update safety mode: gate_rollback (default) or spfw (project gradients)",
+    )
+    p.add_argument("--spfw_eps_dot", type=float, default=0.0, help="SPFW absolute dot slack")
+    p.add_argument(
+        "--spfw_eps_cos",
+        type=float,
+        default=0.0,
+        help="SPFW cosine slack (scale-aware): dot>=-eps_cos*||c||*||g||",
+    )
+    p.add_argument("--spfw_passes", type=int, default=1, help="SPFW projection passes over canaries")
+    p.add_argument(
+        "--spfw_stall_ratio",
+        type=float,
+        default=0.99,
+        help="If projection removes > this fraction, suppress write",
+    )
+    p.add_argument(
+        "--spfw_gate_scale",
+        type=float,
+        default=0.1,
+        help="If gate triggers, scale LR by this factor (SPFW mode)",
+    )
+    p.add_argument(
+        "--spfw_canary_text",
+        action="append",
+        default=[],
+        help="Additional canary text for SPFW constraints (repeatable). Defaults to --canary_text if none provided.",
+    )
+
     p.add_argument(
         "--write_json", action="store_true", help="Write monitor_report.json"
     )
@@ -283,6 +325,13 @@ def main() -> None:
         mlm_prob=args.mlm_prob,
         enable_canary_grad=canary_grad_enabled,
         canary_grad_every=args.canary_grad_every,
+        safety_mode=args.safety_mode,
+        spfw_eps_dot=args.spfw_eps_dot,
+        spfw_eps_cos=args.spfw_eps_cos,
+        spfw_passes=args.spfw_passes,
+        spfw_stall_ratio=args.spfw_stall_ratio,
+        spfw_gate_scale=args.spfw_gate_scale,
+        canary_texts=(args.spfw_canary_text if args.spfw_canary_text else None),
     )
 
     print_report(events)
