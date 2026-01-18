@@ -21,7 +21,23 @@ import {
   type TrainStatus,
 } from '../../api/textTrainApi';
 
-const DEFAULT_CORPUS = ['README.md', 'CLAUDE.md'];
+const DEFAULT_CORPUS = ['training_data'];
+
+// Helper to format seconds into human-readable time (e.g., "1h 23m 45s")
+function formatTime(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) return '—';
+
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0 || h > 0) parts.push(`${m}m`);
+  parts.push(`${s}s`);
+
+  return parts.join(' ');
+}
 
 export function TextTrainTab() {
   const [corpusText, setCorpusText] = useState(DEFAULT_CORPUS.join('\n'));
@@ -190,7 +206,7 @@ export function TextTrainTab() {
           </div>
 
           <label className="text-xs text-text-muted block">
-            Corpus files (repo-relative, one per line)
+            Corpus files or folders (repo-relative, one per line)
             <textarea
               value={corpusText}
               onChange={(e) => setCorpusText(e.target.value)}
@@ -426,25 +442,88 @@ export function TextTrainTab() {
             </select>
           </div>
 
-          <div className="grid grid-cols-4 gap-3 text-xs">
-            <div>
-              <div className="text-text-muted">status</div>
-              <div className="font-mono text-text-primary">{status?.status ?? '—'}</div>
+          {/* Progress Bar */}
+          {latest?.step != null && steps > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-text-muted">Progress</span>
+                <span className="font-mono text-text-primary">
+                  {latest.step} / {steps} steps ({((latest.step / steps) * 100).toFixed(1)}%)
+                </span>
+              </div>
+              <div className="w-full bg-surface-200 rounded-full h-3 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-accent-blue to-accent-green transition-all duration-300"
+                  style={{ width: `${Math.min(100, (latest.step / steps) * 100).toFixed(2)}%` }}
+                />
+              </div>
             </div>
-            <div>
-              <div className="text-text-muted">step</div>
-              <div className="font-mono text-text-primary">{latest?.step ?? '—'}</div>
+          )}
+
+          {/* Comprehensive Stats Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Status & Step */}
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted mb-1">Status</div>
+              <div className="font-mono text-sm text-text-primary">{status?.status ?? '—'}</div>
+              <div className="text-xs text-text-muted mt-2 mb-1">Step</div>
+              <div className="font-mono text-sm text-accent-blue">{latest?.step ?? '—'}</div>
             </div>
-            <div>
-              <div className="text-text-muted">loss</div>
-              <div className="font-mono text-text-primary">{latest?.loss == null ? '—' : formatNumber(latest.loss, 4)}</div>
-            </div>
-            <div>
-              <div className="text-text-muted">grad</div>
-              <div className="font-mono text-text-primary">
+
+            {/* Loss & Gradient */}
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted mb-1">Loss</div>
+              <div className="font-mono text-sm text-accent-purple">
+                {latest?.loss == null ? '—' : formatNumber(latest.loss, 4)}
+              </div>
+              <div className="text-xs text-text-muted mt-2 mb-1">Grad Norm</div>
+              <div className="font-mono text-sm text-accent-green">
                 {latest?.grad_norm == null ? '—' : formatNumber(latest.grad_norm, 4)}
               </div>
             </div>
+
+            {/* Time & ETA */}
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted mb-1">Elapsed Time</div>
+              <div className="font-mono text-sm text-text-primary">
+                {latest?.seconds != null ? formatTime(latest.seconds) : '—'}
+              </div>
+              <div className="text-xs text-text-muted mt-2 mb-1">ETA</div>
+              <div className="font-mono text-sm text-accent-gold">
+                {latest?.step != null && latest?.seconds != null && steps > 0
+                  ? formatTime(((steps - latest.step) / latest.step) * latest.seconds)
+                  : '—'}
+              </div>
+            </div>
+
+            {/* Throughput */}
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted mb-1">Steps/sec</div>
+              <div className="font-mono text-sm text-accent-blue">
+                {latest?.step != null && latest?.seconds != null && latest.seconds > 0
+                  ? formatNumber(latest.step / latest.seconds, 2)
+                  : '—'}
+              </div>
+              <div className="text-xs text-text-muted mt-2 mb-1">Tokens/sec</div>
+              <div className="font-mono text-sm text-accent-green">
+                {latest?.tokens != null && latest?.seconds != null && latest.seconds > 0
+                  ? formatNumber(latest.tokens / latest.seconds, 0)
+                  : '—'}
+              </div>
+            </div>
+
+            {/* Tokens Processed */}
+            {latest?.tokens != null && (
+              <div className="bg-surface-100 rounded-lg p-3 col-span-2">
+                <div className="text-xs text-text-muted mb-1">Tokens Processed</div>
+                <div className="font-mono text-sm text-accent-purple">
+                  {latest.tokens.toLocaleString()} tokens ({formatNumber(latest.tokens / 1e6, 2)}M)
+                </div>
+                <div className="text-xs text-text-secondary mt-1">
+                  ~{Math.floor(latest.tokens / (batchSize * seqLen))} batches seen
+                </div>
+              </div>
+            )}
           </div>
 
           {(status?.exit_code != null || status?.error) && (
@@ -485,7 +564,7 @@ export function TextTrainTab() {
       </div>
 
       <div className="bg-accent-blue/10 border border-accent-blue/30 rounded-lg p-4 text-sm text-text-secondary">
-        <strong className="text-accent-blue">Note:</strong> the server restricts corpus/tokenizer paths to files under this repo.
+        <strong className="text-accent-blue">Note:</strong> the server restricts corpus/tokenizer paths to files/folders under this repo.
       </div>
     </div>
   );

@@ -197,3 +197,42 @@ export interface Tab {
   label: string;
   icon: string;
 }
+
+// Text monitoring types (from ttt/monitors/gradient.py)
+export interface MonitorEvent {
+  chunk_index: number;
+  token_start: number;
+  token_end: number;
+  chunk_preview: string;
+  loss: number;
+  grad_norm: number;
+  update_norm: number;
+  grad_z: number | null;
+  update_z: number | null;
+  flagged: boolean;
+  reasons: string[];
+  top_influence_tokens: Array<[string, number]>;
+  // Gate decision fields
+  gate_allowed: boolean;
+  gate_reasons: string[];
+  token_entropy: number;
+  token_diversity: number;
+  update_skipped: boolean;
+  // Rollback fields
+  attempted_update_norm: number;
+  rollback_triggered: boolean;
+  rollback_reasons: string[];
+  canary_loss_before: number | null;
+  canary_loss_after: number | null;
+  canary_delta: number | null;
+  canary_delta_z: number | null;
+  // Backbone/objective metadata
+  backbone: string;
+  objective: string;
+  // Compression-based signal (Kolmogorov proxy)
+  compression_ratio: number | null;
+  // Canary gradient alignment signals
+  canary_grad_norm: number | null;
+  grad_canary_cos: number | null;  // Cosine similarity [-1, 1]
+  grad_canary_dot: number | null;  // Dot product
+}

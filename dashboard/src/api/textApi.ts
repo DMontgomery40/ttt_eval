@@ -1,4 +1,5 @@
 import { apiUrl } from './config';
+import { MonitorEvent } from '../types';
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(apiUrl(path), {
@@ -37,7 +38,7 @@ export type TextRunData = {
     blocked: number;
     rollbacks: number;
   };
-  events: any[];
+  events: MonitorEvent[];
 };
 
 export async function listTextRuns(limit = 50): Promise<TextRunSummary[]> {

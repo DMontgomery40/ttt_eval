@@ -28,6 +28,41 @@ def _device_from_arg(device: str) -> torch.device:
     return torch.device(d)
 
 
+def _collect_corpus_files(
+    *,
+    corpus_paths: Sequence[str],
+    corpus_dirs: Sequence[str],
+    allowed_exts: Sequence[str] = (".txt", ".md", ".text", ".tex", ".rst"),
+) -> list[str]:
+    files: list[str] = []
+
+    for p in corpus_paths:
+        p = str(p).strip()
+        if not p:
+            continue
+        if not os.path.isfile(p):
+            raise FileNotFoundError(f"Corpus file not found: {p}")
+        files.append(p)
+
+    for d in corpus_dirs:
+        d = str(d).strip()
+        if not d:
+            continue
+        if not os.path.isdir(d):
+            raise FileNotFoundError(f"Corpus dir not found: {d}")
+        for root, _, names in os.walk(d):
+            for name in names:
+                ext = os.path.splitext(name)[1].lower()
+                if ext and ext not in allowed_exts:
+                    continue
+                files.append(os.path.join(root, name))
+
+    out = sorted(set(os.path.abspath(f) for f in files))
+    if not out:
+        raise ValueError("No corpus files found (provide --corpus and/or --corpus_dir)")
+    return out
+
+
 def _append_jsonl(path: str, obj: object) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
@@ -39,6 +74,7 @@ def train(
     artifacts_root: str,
     model_id: Optional[str],
     corpus_paths: Sequence[str],
+    corpus_dirs: Sequence[str],
     tokenizer_path: Optional[str],
     vocab_size: int,
     d_model: int,
@@ -98,14 +134,16 @@ def train(
         rng = random.Random(int(seed))
         torch.manual_seed(int(seed))
 
+        corpus_files = _collect_corpus_files(corpus_paths=corpus_paths, corpus_dirs=corpus_dirs)
+
         if tokenizer_path:
             tok = BpeTokenizer.load(tokenizer_path)
         else:
-            tok = train_bpe_from_files(corpus_paths, vocab_size=vocab_size)
+            tok = train_bpe_from_files(corpus_files, vocab_size=vocab_size)
 
         tok.save(tok_out)
 
-        text = load_text(corpus_paths)
+        text = load_text(corpus_files)
         ids = encode_corpus(tok, text)
 
         cfg = TinyLmConfig(vocab_size=tok.vocab_size, d_model=int(d_model), backbone=backbone)  # type: ignore[arg-type]
@@ -189,7 +227,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     p = argparse.ArgumentParser(description="Train a tiny BPE LM (Muon optimizer)")
     p.add_argument("--artifacts_root", type=str, default="artifacts")
     p.add_argument("--model_id", type=str, default="", help="Optional explicit model id")
-    p.add_argument("--corpus", nargs="+", required=True, help="One or more UTF-8 text files")
+    p.add_argument("--corpus", nargs="+", default=[], help="One or more UTF-8 text files")
+    p.add_argument("--corpus_dir", nargs="+", default=[], help="One or more directories of UTF-8 text files")
     p.add_argument("--tokenizer", type=str, default="", help="Existing tokenizer.json (optional)")
     p.add_argument("--vocab_size", type=int, default=4096, help="Used only if training tokenizer")
     p.add_argument("--d_model", type=int, default=256)
@@ -214,6 +253,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         artifacts_root=args.artifacts_root,
         model_id=args.model_id.strip() or None,
         corpus_paths=args.corpus,
+        corpus_dirs=args.corpus_dir,
         tokenizer_path=tokenizer_path,
         vocab_size=args.vocab_size,
         d_model=args.d_model,

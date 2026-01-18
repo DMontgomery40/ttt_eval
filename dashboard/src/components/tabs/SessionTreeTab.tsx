@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useDashboardStore } from '../../store';
 import { formatRelativeTime } from '../../utils/formatting';
 import type { SessionTreeNode } from '../../types';
+import { BranchingPerformanceCard } from '../cards/BranchingPerformanceCard';
 
 // Tree node colors based on lineage
 const ROOT_COLORS = ['#58a6ff', '#39d353', '#a371f7', '#f0883e', '#da3633'];
@@ -402,6 +403,9 @@ export function SessionTreeTab() {
           </div>
         </div>
       </div>
+
+      {/* Branching Performance Analysis */}
+      <BranchingPerformanceCard sessions={sessions} />
 
       {/* Legend */}
       <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">

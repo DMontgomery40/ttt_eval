@@ -1,34 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { formatNumber } from '../../utils/formatting';
 import { createTextRun, getTextRun, listTextRuns, type TextRunSummary } from '../../api/textApi';
+import { MonitorEvent } from '../../types';
+import { DirectionalMonitoringCard } from '../cards/DirectionalMonitoringCard';
+import { CanaryLossCard } from '../cards/CanaryLossCard';
+import { GateAnalyticsCard } from '../cards/GateAnalyticsCard';
 
 type Backbone = 'gru' | 'ssm';
 type Objective = 'ar' | 'mlm';
-
-type MonitorEvent = {
-  chunk_index: number;
-  token_start: number;
-  token_end: number;
-  chunk_preview: string;
-  loss: number;
-  grad_norm: number;
-  update_norm: number;
-  flagged: boolean;
-  reasons: string[];
-  gate_allowed: boolean;
-  gate_reasons: string[];
-  token_entropy: number;
-  token_diversity: number;
-  update_skipped: boolean;
-  rollback_triggered: boolean;
-  rollback_reasons: string[];
-  canary_delta: number | null;
-  backbone: string;
-  objective: string;
-  compression_ratio: number | null;
-  grad_canary_cos: number | null;
-};
 
 type RunTextMonitorResponse = {
   events: MonitorEvent[];
@@ -127,7 +108,20 @@ export function TextMonitorTab() {
     const flagged = events.filter(e => e.flagged).length;
     const blocked = events.filter(e => e.update_skipped).length;
     const rollbacks = events.filter(e => e.rollback_triggered).length;
-    return { flagged, blocked, rollbacks };
+    const highCompression = events.filter(e => e.compression_ratio !== null && e.compression_ratio < 0.5).length;
+    const harmfulAlignment = events.filter(e => e.grad_canary_cos !== null && e.grad_canary_cos > 0.3).length;
+    return { flagged, blocked, rollbacks, highCompression, harmfulAlignment };
+  }, [events]);
+
+  // Compression ratio timeline data
+  const compressionData = useMemo(() => {
+    return events
+      .filter(e => e.compression_ratio !== null)
+      .map(e => ({
+        chunk: e.chunk_index,
+        ratio: e.compression_ratio!,
+        blocked: e.update_skipped,
+      }));
   }, [events]);
 
   return (
@@ -362,7 +356,7 @@ export function TextMonitorTab() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-4 gap-3 mt-2 text-xs">
+                    <div className="grid grid-cols-6 gap-3 mt-2 text-xs">
                       <div>
                         <div className="text-text-muted">loss</div>
                         <div className="font-mono text-text-primary">{formatNumber(e.loss, 3)}</div>
@@ -377,8 +371,20 @@ export function TextMonitorTab() {
                       </div>
                       <div>
                         <div className="text-text-muted">canary Δ</div>
-                        <div className="font-mono text-text-primary">
+                        <div className={`font-mono ${e.canary_delta !== null && e.canary_delta > 1.0 ? 'text-accent-red' : 'text-text-primary'}`}>
                           {e.canary_delta === null ? '—' : formatNumber(e.canary_delta, 3)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-text-muted">compress</div>
+                        <div className={`font-mono ${e.compression_ratio !== null && e.compression_ratio < 0.5 ? 'text-accent-red' : 'text-text-primary'}`}>
+                          {e.compression_ratio === null ? '—' : formatNumber(e.compression_ratio, 3)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-text-muted">align</div>
+                        <div className={`font-mono ${e.grad_canary_cos !== null && e.grad_canary_cos > 0.3 ? 'text-accent-red' : 'text-text-primary'}`}>
+                          {e.grad_canary_cos === null ? '—' : formatNumber(e.grad_canary_cos, 3)}
                         </div>
                       </div>
                     </div>
@@ -388,15 +394,46 @@ export function TextMonitorTab() {
                     </div>
 
                     {(e.reasons?.length || e.gate_reasons?.length || e.rollback_reasons?.length) ? (
-                      <div className="mt-2 text-xs text-text-muted">
+                      <div className="mt-2 space-y-1">
                         {e.gate_reasons?.length ? (
-                          <div>gate: {e.gate_reasons.join(', ')}</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-text-muted">Gate:</span>
+                            {e.gate_reasons.map((reason, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 rounded text-xs bg-accent-orange/20 text-accent-orange border border-accent-orange/30"
+                                title={`Blocked by gate check: ${reason}`}
+                              >
+                                {reason}
+                              </span>
+                            ))}
+                          </div>
                         ) : null}
                         {e.reasons?.length ? (
-                          <div>flags: {e.reasons.join(', ')}</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-text-muted">Flags:</span>
+                            {e.reasons.map((reason, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 rounded text-xs bg-accent-red/20 text-accent-red border border-accent-red/30"
+                              >
+                                {reason}
+                              </span>
+                            ))}
+                          </div>
                         ) : null}
                         {e.rollback_reasons?.length ? (
-                          <div>rollback: {e.rollback_reasons.join(', ')}</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-text-muted">Rollback:</span>
+                            {e.rollback_reasons.map((reason, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 rounded text-xs bg-accent-gold/20 text-accent-gold border border-accent-gold/30"
+                              >
+                                {reason}
+                              </span>
+                            ))}
+                          </div>
                         ) : null}
                       </div>
                     ) : null}
@@ -407,6 +444,137 @@ export function TextMonitorTab() {
           )}
         </div>
       </div>
+
+      {/* Signal Summary Panel */}
+      {hasResults && (
+        <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-text-primary mb-3">Signal Summary</h3>
+          <div className="grid grid-cols-5 gap-4">
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted">Total Chunks</div>
+              <div className="text-2xl font-bold font-mono text-text-primary mt-1">
+                {events.length}
+              </div>
+            </div>
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted">Gate Blocked</div>
+              <div className="text-2xl font-bold font-mono text-accent-orange mt-1">
+                {statusCounts.blocked}
+              </div>
+              <div className="text-xs text-text-secondary mt-1">
+                {events.length > 0 ? ((statusCounts.blocked / events.length) * 100).toFixed(1) : 0}%
+              </div>
+            </div>
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted">Rollbacks</div>
+              <div className="text-2xl font-bold font-mono text-accent-red mt-1">
+                {statusCounts.rollbacks}
+              </div>
+              <div className="text-xs text-text-secondary mt-1">
+                {events.length > 0 ? ((statusCounts.rollbacks / events.length) * 100).toFixed(1) : 0}%
+              </div>
+            </div>
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted">Low Compression</div>
+              <div className="text-2xl font-bold font-mono text-accent-gold mt-1">
+                {statusCounts.highCompression}
+              </div>
+              <div className="text-xs text-text-secondary mt-1">
+                ratio &lt; 0.5
+              </div>
+            </div>
+            <div className="bg-surface-100 rounded-lg p-3">
+              <div className="text-xs text-text-muted">Harmful Alignment</div>
+              <div className="text-2xl font-bold font-mono text-accent-red mt-1">
+                {statusCounts.harmfulAlignment}
+              </div>
+              <div className="text-xs text-text-secondary mt-1">
+                cos &gt; 0.3
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Compression Ratio Chart */}
+      {hasResults && compressionData.length > 0 && (
+        <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">Compression Ratio Timeline</h3>
+              <p className="text-xs text-text-muted mt-1">
+                Kolmogorov complexity proxy via zlib compression (low ratio = suspicious)
+              </p>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={compressionData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#30363d" />
+              <XAxis
+                dataKey="chunk"
+                stroke="#8b949e"
+                tick={{ fill: '#8b949e', fontSize: 11 }}
+                label={{ value: 'Chunk Index', position: 'insideBottom', offset: -10, style: { fill: '#8b949e', fontSize: 11 } }}
+              />
+              <YAxis
+                stroke="#8b949e"
+                tick={{ fill: '#8b949e', fontSize: 11 }}
+                domain={[0, 1]}
+                label={{ value: 'Compression Ratio', angle: -90, position: 'insideLeft', style: { fill: '#8b949e', fontSize: 11 } }}
+              />
+              <ReferenceLine
+                y={0.5}
+                stroke="#f0883e"
+                strokeDasharray="3 3"
+                label={{ value: 'suspicious', position: 'right', fill: '#f0883e', fontSize: 10 }}
+              />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#161b22', border: '1px solid #30363d', borderRadius: '6px', fontSize: '11px' }}
+                formatter={(value: any) => formatNumber(Number(value), 3)}
+              />
+              <Line
+                type="monotone"
+                dataKey="ratio"
+                stroke="#58a6ff"
+                strokeWidth={2}
+                dot={(props: any) => {
+                  const { cx, cy, payload } = props;
+                  let color = '#3fb950'; // green (high CR, normal text)
+                  if (payload.ratio < 0.5) color = '#f85149'; // red (low CR, suspicious)
+                  else if (payload.ratio < 0.7) color = '#d29922'; // yellow (medium CR)
+                  if (payload.blocked) {
+                    return <circle cx={cx} cy={cy} r={5} fill={color} stroke="#f0883e" strokeWidth={2} />;
+                  }
+                  return <circle cx={cx} cy={cy} r={3} fill={color} />;
+                }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="flex items-center justify-center gap-4 mt-2 text-xs text-text-muted">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded-full bg-accent-green" />
+              <span>Normal (0.7-0.9)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded-full bg-accent-gold" />
+              <span>Medium (0.5-0.7)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded-full bg-accent-red" />
+              <span>Suspicious (&lt; 0.5)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Advanced Analytics Cards */}
+      {hasResults && (
+        <>
+          <DirectionalMonitoringCard events={events} />
+          <CanaryLossCard events={events} rollbackAbsCanaryDelta={1.0} />
+          <GateAnalyticsCard events={events} minEntropyThreshold={1.0} minDiversityThreshold={0.1} />
+        </>
+      )}
 
       {/* Context */}
       <div className="bg-accent-blue/10 border border-accent-blue/30 rounded-lg p-4 text-sm text-text-secondary">

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useDashboardStore } from '../../store';
 import { truncateHash, formatImprovement } from '../../utils/formatting';
+import { RunComparisonPanel } from '../cards/RunComparisonPanel';
+import { RunData } from '../../types';
 import {
   LineChart,
   Line,
@@ -91,6 +93,8 @@ export function SessionsTab() {
   } = useDashboardStore();
 
   const [forkingSession, setForkingSession] = useState<string | null>(null);
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [showRunComparison, setShowRunComparison] = useState(false);
 
   // Calculate lineage depth for each session
   const getLineageDepth = (sessionId: string): number => {
@@ -107,6 +111,40 @@ export function SessionsTab() {
   const getTotalRuns = (sessionId: string): number => {
     return sessionIndex.sessions[sessionId]?.total_runs ?? 0;
   };
+
+  // Toggle run selection
+  const toggleRunSelection = (runId: string) => {
+    setSelectedRunIds(prev =>
+      prev.includes(runId)
+        ? prev.filter(id => id !== runId)
+        : [...prev, runId]
+    );
+  };
+
+  // Get selected runs
+  const selectedRuns = useMemo((): RunData[] => {
+    if (selectedRunIds.length === 0) return [];
+
+    // Find all runs across all sessions
+    const allRuns: RunData[] = [];
+    sessions.forEach(session => {
+      if (session.runs) {
+        allRuns.push(...session.runs);
+      }
+    });
+
+    return allRuns.filter(run => selectedRunIds.includes(run.run_id));
+  }, [sessions, selectedRunIds]);
+
+  // Get session for run comparison
+  const runComparisonSessionId = useMemo(() => {
+    if (selectedRuns.length === 0) return '';
+    // All selected runs should be from the same session
+    const session = sessions.find(s =>
+      s.runs?.some(r => selectedRunIds.includes(r.run_id))
+    );
+    return session?.meta.session_id || '';
+  }, [sessions, selectedRuns, selectedRunIds]);
 
   // Comparison data
   const comparisonData = useMemo(() => {
@@ -312,6 +350,88 @@ export function SessionsTab() {
           </table>
         </div>
       </div>
+
+      {/* Run Comparison Section */}
+      {currentSession.runs && currentSession.runs.length > 1 && (
+        <div className="bg-surface-50 border border-surface-200 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">Compare Runs</h3>
+              <p className="text-xs text-text-muted mt-1">
+                This session has {currentSession.runs.length} runs. Select 2+ to compare.
+              </p>
+            </div>
+            {selectedRunIds.length >= 2 && (
+              <button
+                onClick={() => setShowRunComparison(!showRunComparison)}
+                className="px-3 py-1.5 text-xs bg-accent-blue text-white rounded hover:bg-accent-blue/80 transition-colors"
+              >
+                {showRunComparison ? 'Hide Comparison' : `Compare ${selectedRunIds.length} Runs`}
+              </button>
+            )}
+          </div>
+
+          {/* Run selection checkboxes */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {currentSession.runs.map(run => {
+              const isSelected = selectedRunIds.includes(run.run_id);
+              return (
+                <label
+                  key={run.run_id}
+                  className={`flex items-center gap-2 p-2 rounded border transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-accent-blue/10 border-accent-blue'
+                      : 'bg-surface-100 border-surface-200 hover:border-surface-300'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleRunSelection(run.run_id)}
+                    className="rounded"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-xs text-text-primary truncate">
+                      {run.run_id.split('_').pop()}
+                    </div>
+                    <div className="text-xs text-text-muted">
+                      seed: {run.seed}, {run.steps} steps
+                    </div>
+                    <div className="text-xs text-accent-green font-mono">
+                      {formatImprovement(run.metrics.base_mse_last100_mean, run.metrics.adaptive_last100_mean)}
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Clear selection button */}
+          {selectedRunIds.length > 0 && (
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-xs text-text-muted">
+                {selectedRunIds.length} run{selectedRunIds.length !== 1 ? 's' : ''} selected
+              </span>
+              <button
+                onClick={() => setSelectedRunIds([])}
+                className="text-xs text-accent-red hover:underline"
+              >
+                Clear Selection
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Run Comparison Panel */}
+      {showRunComparison && selectedRuns.length >= 2 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <RunComparisonPanel runs={selectedRuns} sessionId={runComparisonSessionId} />
+        </motion.div>
+      )}
 
       {/* Compare with Parent */}
       {currentSession.meta.parent_session_id && (

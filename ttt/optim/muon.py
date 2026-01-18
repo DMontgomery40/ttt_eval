@@ -159,10 +159,25 @@ def make_muon_optimizer(
     adjust_lr_fn: Optional[str] = None,
 ) -> torch.optim.Optimizer:
     """
-    Prefer `torch.optim.Muon` if available, otherwise use the fallback.
+    Prefer `torch.optim.Muon` if available *and* parameter shapes are compatible.
+
+    Some PyTorch builds expose `torch.optim.Muon` that only supports 2D parameters.
+    This repo's models include 1D params (e.g. LayerNorm, biases, SSM diagonals),
+    so we automatically fall back to a Muon-style implementation that supports
+    arbitrary shapes.
     """
-    if hasattr(torch.optim, "Muon"):
-        return torch.optim.Muon(
+    params_list = list(params)
+
+    def _torch_muon_compatible(ps: Iterable[torch.nn.Parameter]) -> bool:
+        for p in ps:
+            if not getattr(p, "requires_grad", False):
+                continue
+            if p.ndim != 2:
+                return False
+        return True
+
+    if hasattr(torch.optim, "Muon") and _torch_muon_compatible(params_list):
+        return torch.optim.Muon(  # type: ignore[attr-defined]
             params,
             lr=float(lr),
             weight_decay=float(weight_decay),
@@ -172,7 +187,7 @@ def make_muon_optimizer(
             adjust_lr_fn=adjust_lr_fn,
         )
     return MuonFallback(
-        params,
+        params_list,
         lr=float(lr),
         weight_decay=float(weight_decay),
         momentum=float(momentum),
@@ -180,4 +195,3 @@ def make_muon_optimizer(
         ns_steps=int(ns_steps),
         adjust_lr_fn=adjust_lr_fn,
     )
-

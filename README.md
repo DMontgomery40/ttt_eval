@@ -186,7 +186,7 @@ Start a training run:
 - via CLI (example corpus: this repo’s own docs):
 
 ```bash
-python -m ttt.text_lm.train --corpus README.md CLAUDE.md --device mps --steps 2000
+python -m ttt.text_lm.train --corpus_dir training_data --device mps --steps 2000
 ```
 
 This writes:

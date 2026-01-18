@@ -21,7 +21,7 @@ def _resolve_repo_file(repo_root: str, path: str) -> str:
 
     This keeps the training UI from becoming an arbitrary file reader.
     """
-    repo_root_abs = os.path.abspath(repo_root)
+    repo_root_abs = os.path.realpath(os.path.abspath(repo_root))
     raw = path.strip()
     if not raw:
         raise ValueError("Empty corpus path")
@@ -29,12 +29,30 @@ def _resolve_repo_file(repo_root: str, path: str) -> str:
     candidate = raw
     if not os.path.isabs(candidate):
         candidate = os.path.join(repo_root_abs, candidate)
-    candidate = os.path.abspath(candidate)
+    candidate = os.path.realpath(os.path.abspath(candidate))
 
     if not candidate.startswith(repo_root_abs + os.sep) and candidate != repo_root_abs:
         raise ValueError(f"Path escapes repo root: {path}")
     if not os.path.isfile(candidate):
         raise FileNotFoundError(f"Corpus file not found: {path}")
+    return candidate
+
+
+def _resolve_repo_path(repo_root: str, path: str) -> str:
+    repo_root_abs = os.path.realpath(os.path.abspath(repo_root))
+    raw = path.strip()
+    if not raw:
+        raise ValueError("Empty corpus path")
+
+    candidate = raw
+    if not os.path.isabs(candidate):
+        candidate = os.path.join(repo_root_abs, candidate)
+    candidate = os.path.realpath(os.path.abspath(candidate))
+
+    if not candidate.startswith(repo_root_abs + os.sep) and candidate != repo_root_abs:
+        raise ValueError(f"Path escapes repo root: {path}")
+    if not os.path.exists(candidate):
+        raise FileNotFoundError(f"Corpus path not found: {path}")
     return candidate
 
 
@@ -135,7 +153,21 @@ class TextTrainManager:
         self.store.ensure()
         model_id = self.store.new_model_id(prefix="lm")
 
-        resolved_corpus = [_resolve_repo_file(self.repo_root, p) for p in corpus_paths]
+        corpus_paths = list(corpus_paths)
+        if not corpus_paths:
+            corpus_paths = ["training_data"]
+
+        corpus_files: List[str] = []
+        corpus_dirs: List[str] = []
+        for p in corpus_paths:
+            resolved = _resolve_repo_path(self.repo_root, p)
+            if os.path.isdir(resolved):
+                corpus_dirs.append(resolved)
+            elif os.path.isfile(resolved):
+                corpus_files.append(resolved)
+            else:
+                raise FileNotFoundError(f"Corpus path not found: {p}")
+
         tok_path = None
         if tokenizer_path:
             tok_path = _resolve_repo_file(self.repo_root, tokenizer_path)
@@ -148,8 +180,6 @@ class TextTrainManager:
             self.store.paths.artifacts_root,
             "--model_id",
             model_id,
-            "--corpus",
-            *resolved_corpus,
             "--vocab_size",
             str(int(vocab_size)),
             "--d_model",
@@ -179,6 +209,10 @@ class TextTrainManager:
             "--save_every",
             str(int(save_every)),
         ]
+        if corpus_files:
+            cmd.extend(["--corpus", *corpus_files])
+        if corpus_dirs:
+            cmd.extend(["--corpus_dir", *corpus_dirs])
         if tok_path:
             cmd.extend(["--tokenizer", tok_path])
 

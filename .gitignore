@@ -45,3 +45,7 @@ htmlcov/
 
 # Phase 1 artifacts (generated)
 artifacts/
+
+# Local training corpus (user-synced)
+training_data/*
+!training_data/README.md

@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 class StartTextTrainRequest(BaseModel):
-    corpus_paths: List[str] = Field(..., min_length=1)
+    corpus_paths: List[str] = Field(default_factory=list)
     tokenizer_path: Optional[str] = None
 
     vocab_size: int = Field(default=4096, ge=512, le=65536)
