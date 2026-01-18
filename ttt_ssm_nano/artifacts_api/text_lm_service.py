@@ -37,6 +37,9 @@ class TextLmService:
     def list_models(self) -> list:
         return self.store.list_models()
 
+    def load_model(self, model_id: str) -> LoadedTextModel:
+        return self._load_model(model_id)
+
     def _load_model(self, model_id: str) -> LoadedTextModel:
         cached = self._cache.get(model_id)
         if cached is not None:
@@ -50,7 +53,7 @@ class TextLmService:
         cfg = TinyLmConfig(
             vocab_size=int(cfg_raw.get("vocab_size", tok.vocab_size)),
             d_model=int(cfg_raw.get("d_model", 256)),
-            backbone=str(cfg_raw.get("backbone", "gru")),  # type: ignore[arg-type]
+            backbone=str(cfg_raw.get("backbone", "ssm")),  # type: ignore[arg-type]
         )
 
         ckpt = torch.load(self.store.paths.checkpoint_pt(model_id), map_location="cpu")
@@ -72,9 +75,28 @@ class TextLmService:
         temperature: float,
         top_k: int,
     ) -> dict:
-        chosen = model_id or self.store.latest_model_id()
+        if model_id:
+            chosen = model_id
+        else:
+            chosen = None
+            for rec in self.store.list_models():
+                mid = str((rec or {}).get("model_id") or "").strip()
+                if not mid:
+                    continue
+                if str((rec or {}).get("status") or "").strip().lower() == "failed":
+                    continue
+                if not os.path.exists(self.store.paths.checkpoint_pt(mid)):
+                    continue
+                if not os.path.exists(self.store.paths.tokenizer_json(mid)):
+                    continue
+                chosen = mid
+                break
+
         if not chosen:
-            raise FileNotFoundError("No trained text model found in artifacts/text_models")
+            raise FileNotFoundError(
+                "No usable text model found in artifacts/text_models. "
+                "Train one in the Train tab (and wait for a checkpoint)."
+            )
 
         m = self._load_model(chosen)
         ids = m.tokenizer.encode(prompt, add_bos=True, add_eos=False)
@@ -95,4 +117,3 @@ class TextLmService:
 
         text = m.tokenizer.decode(ids, skip_special=True)
         return {"model_id": chosen, "prompt": prompt, "text": text}
-

@@ -225,13 +225,12 @@ class TextTrainManager:
     def get_status(self, model_id: str) -> Dict[str, Any]:
         job = self._jobs.get(model_id)
         code = job.poll() if job else None
+        rec = self._load_model_record(model_id) or {}
         if job and code is None:
             status = "running"
         elif job:
-            rec = self._load_model_record(model_id) or {}
             status = str(rec.get("status", "finished"))
         else:
-            rec = self._load_model_record(model_id) or {}
             status = str(rec.get("status", "unknown"))
 
         latest = None
@@ -246,6 +245,7 @@ class TextTrainManager:
             "started_at_unix": (job.started_at_unix if job else None),
             "exit_code": (None if not job else code),
             "latest": latest,
+            "error": rec.get("error"),
         }
 
     def get_metrics(self, model_id: str, *, limit: int = 500) -> List[Dict[str, Any]]:

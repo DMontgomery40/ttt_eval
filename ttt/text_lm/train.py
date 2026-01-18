@@ -23,6 +23,8 @@ def _device_from_arg(device: str) -> torch.device:
         if torch.backends.mps.is_available():
             return torch.device("mps")
         return torch.device("cpu")
+    if d == "mps" and not torch.backends.mps.is_available():
+        raise ValueError("device=mps requested, but torch.backends.mps.is_available() is False")
     return torch.device(d)
 
 
@@ -62,52 +64,25 @@ def train(
         raise FileExistsError(f"Model directory already exists: {model_dir}")
     os.makedirs(model_dir, exist_ok=False)
 
-    dev = _device_from_arg(device)
-    rng = random.Random(int(seed))
-    torch.manual_seed(int(seed))
-
-    if tokenizer_path:
-        tok = BpeTokenizer.load(tokenizer_path)
-    else:
-        tok = train_bpe_from_files(corpus_paths, vocab_size=vocab_size)
-
     tok_out = store.paths.tokenizer_json(model_id)
-    tok.save(tok_out)
-
-    text = load_text(corpus_paths)
-    ids = encode_corpus(tok, text)
-
-    cfg = TinyLmConfig(vocab_size=tok.vocab_size, d_model=int(d_model), backbone=backbone)  # type: ignore[arg-type]
-    model = TinyLm(cfg).to(dev)
-    opt = make_muon_optimizer(
-        model.parameters(),
-        lr=float(lr),
-        weight_decay=float(weight_decay),
-        momentum=float(momentum),
-        nesterov=True,
-        ns_steps=int(ns_steps),
-        adjust_lr_fn=None,
-    )
-
-    _atomic_write_json(store.paths.config_json(model_id), model.config_dict())
-
+    cfg_out = store.paths.config_json(model_id)
+    ckpt_out = store.paths.checkpoint_pt(model_id)
     log_path = store.paths.train_log_jsonl(model_id)
-    t0 = time.time()
 
-    record = {
+    record: dict = {
         "model_id": model_id,
         "created_at_unix": int(time.time()),
-        "status": "running",
+        "status": "initializing",
         "tokenizer_path": os.path.relpath(tok_out, start=store.paths.artifacts_root),
-        "config_path": os.path.relpath(store.paths.config_json(model_id), start=store.paths.artifacts_root),
-        "checkpoint_path": os.path.relpath(store.paths.checkpoint_pt(model_id), start=store.paths.artifacts_root),
+        "config_path": os.path.relpath(cfg_out, start=store.paths.artifacts_root),
+        "checkpoint_path": os.path.relpath(ckpt_out, start=store.paths.artifacts_root),
         "train_log_path": os.path.relpath(log_path, start=store.paths.artifacts_root),
-        "vocab_size": int(tok.vocab_size),
+        "vocab_size": int(vocab_size),
         "d_model": int(d_model),
         "backbone": str(backbone),
         "seq_len": int(seq_len),
         "steps": int(steps),
-        "device": str(dev),
+        "device": str(device),
         "optimizer": {
             "name": "muon",
             "lr": float(lr),
@@ -119,6 +94,48 @@ def train(
     store.register_model(model_id, record)
 
     try:
+        dev = _device_from_arg(device)
+        rng = random.Random(int(seed))
+        torch.manual_seed(int(seed))
+
+        if tokenizer_path:
+            tok = BpeTokenizer.load(tokenizer_path)
+        else:
+            tok = train_bpe_from_files(corpus_paths, vocab_size=vocab_size)
+
+        tok.save(tok_out)
+
+        text = load_text(corpus_paths)
+        ids = encode_corpus(tok, text)
+
+        cfg = TinyLmConfig(vocab_size=tok.vocab_size, d_model=int(d_model), backbone=backbone)  # type: ignore[arg-type]
+        model = TinyLm(cfg).to(dev)
+        opt = make_muon_optimizer(
+            model.parameters(),
+            lr=float(lr),
+            weight_decay=float(weight_decay),
+            momentum=float(momentum),
+            nesterov=True,
+            ns_steps=int(ns_steps),
+            adjust_lr_fn=None,
+        )
+
+        _atomic_write_json(cfg_out, model.config_dict())
+
+        ckpt0 = {
+            "model_id": model_id,
+            "step": 0,
+            "config": model.config_dict(),
+            "model_state": model.state_dict(),
+        }
+        torch.save(ckpt0, ckpt_out)
+
+        record["status"] = "running"
+        record["device"] = str(dev)
+        record["vocab_size"] = int(tok.vocab_size)
+        store.register_model(model_id, record)
+
+        t0 = time.time()
         for step in range(1, int(steps) + 1):
             batch = sample_next_token_batch(ids, batch_size=batch_size, seq_len=seq_len, device=dev, rng=rng)
             logits = model(batch.x)
@@ -153,7 +170,7 @@ def train(
                     "config": model.config_dict(),
                     "model_state": model.state_dict(),
                 }
-                torch.save(ckpt, store.paths.checkpoint_pt(model_id))
+                torch.save(ckpt, ckpt_out)
     except Exception as e:
         record["status"] = "failed"
         record["error"] = f"{type(e).__name__}: {e}"
@@ -176,7 +193,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     p.add_argument("--tokenizer", type=str, default="", help="Existing tokenizer.json (optional)")
     p.add_argument("--vocab_size", type=int, default=4096, help="Used only if training tokenizer")
     p.add_argument("--d_model", type=int, default=256)
-    p.add_argument("--backbone", type=str, default="gru", choices=["gru", "ssm"])
+    p.add_argument("--backbone", type=str, default="ssm", choices=["ssm", "gru"])
     p.add_argument("--seq_len", type=int, default=128)
     p.add_argument("--batch_size", type=int, default=32)
     p.add_argument("--steps", type=int, default=2000)

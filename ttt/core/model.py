@@ -55,15 +55,15 @@ class ToyTTTModel(nn.Module):
     - Only adapter is updated during TTT steps.
 
     Backbone options:
-    - "gru": Standard GRU (default, nonlinear gating)
-    - "ssm": Diagonal Selective SSM (linear recurrence + input gate)
+    - "ssm": Diagonal Selective SSM (default; linear recurrence + input gate)
+    - "gru": Standard GRU (last resort; nonlinear gating)
     """
 
     def __init__(
         self,
         vocab_size: int = 8192,
         d_model: int = 64,
-        backbone: BackboneType = "gru",
+        backbone: BackboneType = "ssm",
     ) -> None:
         super().__init__()
         self.vocab_size = vocab_size

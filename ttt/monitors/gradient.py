@@ -69,7 +69,7 @@ class MonitorEvent:
     canary_delta: Optional[float]
     canary_delta_z: Optional[float]
     # Backbone/objective metadata
-    backbone: str = "gru"
+    backbone: str = "ssm"
     objective: str = "ar"
     # Compression-based signal (Kolmogorov proxy)
     compression_ratio: Optional[float] = None
@@ -106,7 +106,7 @@ def run_monitor(
     rollback_abs_canary_delta: float = 1.0,
     canary_text: str = DEFAULT_CANARY_TEXT,
     # Backbone and objective selection
-    backbone: BackboneType = "gru",
+    backbone: BackboneType = "ssm",
     objective: ObjectiveType = "ar",
     mlm_prob: float = 0.15,
     # Canary gradient alignment monitoring

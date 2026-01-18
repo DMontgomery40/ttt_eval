@@ -57,7 +57,7 @@ def generate(
     cfg = TinyLmConfig(
         vocab_size=int(cfg_raw.get("vocab_size", tok.vocab_size)),
         d_model=int(cfg_raw.get("d_model", 256)),
-        backbone=str(cfg_raw.get("backbone", "gru")),  # type: ignore[arg-type]
+        backbone=str(cfg_raw.get("backbone", "ssm")),  # type: ignore[arg-type]
     )
 
     ckpt = torch.load(store.paths.checkpoint_pt(model_id), map_location="cpu")
@@ -107,4 +107,3 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-

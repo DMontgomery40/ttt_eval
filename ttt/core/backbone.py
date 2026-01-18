@@ -38,7 +38,7 @@ class BaseBackbone(nn.Module, ABC):
 
 
 class GRUBackbone(BaseBackbone):
-    """GRU backbone (the current default).
+    """GRU backbone (fallback option).
 
     Standard gated recurrent unit. The gating mechanism can
     hide or smooth write pressure because the recurrence itself

@@ -179,6 +179,7 @@ The script generates a tiny demo artifact store if `artifacts/base/base_checkpoi
 The **Train** + **Chat** tabs serve a tiny local language model trained from scratch with:
 - a dependency-free byte-level **BPE** tokenizer
 - **Muon** as the default outer-loop optimizer
+- a persistent fast **context net** (TTT) per chat session stored in `artifacts/text_sessions/`
 
 Start a training run:
 - via UI: open the **Train** tab and set corpus/hparams

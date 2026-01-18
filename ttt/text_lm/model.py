@@ -13,7 +13,7 @@ from ttt.core.backbone import BackboneType, create_backbone
 class TinyLmConfig:
     vocab_size: int = 4096
     d_model: int = 256
-    backbone: BackboneType = "gru"
+    backbone: BackboneType = "ssm"
 
 
 class TinyLm(nn.Module):
@@ -25,12 +25,21 @@ class TinyLm(nn.Module):
         self.ln = nn.LayerNorm(cfg.d_model)
         self.head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=False)
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def hidden(self, input_ids: torch.Tensor) -> torch.Tensor:
         x = self.embed(input_ids)
-        h = self.backbone(x)
-        h = self.ln(h)
-        return self.head(h)
+        return self.backbone(x)
+
+    def logits_from_hidden(self, h: torch.Tensor) -> torch.Tensor:
+        h2 = self.ln(h)
+        return self.head(h2)
+
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        return self.logits_from_hidden(self.hidden(input_ids))
+
+    def forward_with_context(self, input_ids: torch.Tensor, context: nn.Module) -> torch.Tensor:
+        h = self.hidden(input_ids)
+        h = h + context(h)
+        return self.logits_from_hidden(h)
 
     def config_dict(self) -> Dict[str, Any]:
         return asdict(self.cfg)
-

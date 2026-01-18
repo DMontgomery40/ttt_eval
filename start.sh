@@ -167,6 +167,12 @@ if ! http_ok "${API_URL}/api/text/train/jobs"; then
   exit 1
 fi
 
+if ! http_ok "${API_URL}/api/text/sessions"; then
+  echo "[start] API started, but /api/text/sessions is not available at ${API_URL}."
+  echo "[start] Stop any existing server on ${NANO_API_PORT} and re-run ./start.sh."
+  exit 1
+fi
+
 cleanup() {
   if kill -0 "${API_PID}" >/dev/null 2>&1; then
     kill "${API_PID}" >/dev/null 2>&1 || true

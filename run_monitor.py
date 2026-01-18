@@ -198,8 +198,8 @@ def main() -> None:
         "--backbone",
         type=str,
         choices=["gru", "ssm"],
-        default="gru",
-        help="Backbone architecture: gru (default) or ssm",
+        default="ssm",
+        help="Backbone architecture: ssm (default) or gru",
     )
     p.add_argument(
         "--objective",

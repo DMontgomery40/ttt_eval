@@ -7,6 +7,7 @@ from .text_runs import TextRunStore
 from ttt.text_lm.store import TextModelStore
 from .text_lm_service import TextLmService
 from .text_train_manager import TextTrainManager
+from .text_chat_service import TextChatService
 
 
 def get_artifact_reader(request: Request) -> ArtifactReader:
@@ -42,3 +43,10 @@ def get_text_train_manager(request: Request) -> TextTrainManager:
     if not isinstance(mgr, TextTrainManager):
         raise RuntimeError("TextTrainManager not configured on app.state.text_train_manager")
     return mgr
+
+
+def get_text_chat_service(request: Request) -> TextChatService:
+    svc = getattr(request.app.state, "text_chat_service", None)
+    if not isinstance(svc, TextChatService):
+        raise RuntimeError("TextChatService not configured on app.state.text_chat_service")
+    return svc

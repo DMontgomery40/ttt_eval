@@ -17,7 +17,7 @@ class StartTextTrainRequest(BaseModel):
 
     vocab_size: int = Field(default=4096, ge=512, le=65536)
     d_model: int = Field(default=256, ge=32, le=4096)
-    backbone: str = Field(default="gru")
+    backbone: str = Field(default="ssm")
 
     seq_len: int = Field(default=128, ge=8, le=4096)
     batch_size: int = Field(default=32, ge=1, le=4096)
@@ -99,4 +99,3 @@ def cancel_train(model_id: str, mgr: TextTrainManager = Depends(get_text_train_m
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

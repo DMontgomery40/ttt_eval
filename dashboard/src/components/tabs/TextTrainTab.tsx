@@ -29,7 +29,7 @@ export function TextTrainTab() {
 
   const [vocabSize, setVocabSize] = useState(4096);
   const [dModel, setDModel] = useState(256);
-  const [backbone, setBackbone] = useState<'gru' | 'ssm'>('gru');
+  const [backbone, setBackbone] = useState<'gru' | 'ssm'>('ssm');
 
   const [seqLen, setSeqLen] = useState(128);
   const [batchSize, setBatchSize] = useState(32);
@@ -234,8 +234,8 @@ export function TextTrainTab() {
                 onChange={(e) => setBackbone(e.target.value as any)}
                 className="mt-1 w-full bg-surface-100 border border-surface-200 rounded px-2 py-1 text-xs"
               >
-                <option value="gru">GRU</option>
                 <option value="ssm">SSM</option>
+                <option value="gru">GRU</option>
               </select>
             </label>
 
@@ -446,6 +446,17 @@ export function TextTrainTab() {
               </div>
             </div>
           </div>
+
+          {(status?.exit_code != null || status?.error) && (
+            <div className="text-xs">
+              {status?.exit_code != null && (
+                <div className={status.exit_code === 0 ? 'text-text-muted' : 'text-accent-red'}>
+                  exit_code: <span className="font-mono">{status.exit_code}</span>
+                </div>
+              )}
+              {status?.error && <div className="text-accent-red font-mono break-words mt-1">{status.error}</div>}
+            </div>
+          )}
 
           <div className="h-64">
             {!metrics.length ? (

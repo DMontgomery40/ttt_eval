@@ -29,6 +29,7 @@ export type TrainStatus = {
   pid: number | null;
   started_at_unix: number | null;
   exit_code: number | null;
+  error?: string | null;
   latest: {
     step?: number;
     loss?: number;
