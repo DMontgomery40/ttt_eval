@@ -49,7 +49,7 @@ export function TextMonitorTab() {
   const [isLoadingRun, setIsLoadingRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [backbone, setBackbone] = useState<Backbone>('gru');
+  const [backbone, setBackbone] = useState<Backbone>('ssm');
   const [objective, setObjective] = useState<Objective>('ar');
   const [mlmProb, setMlmProb] = useState(0.15);
   const [chunkTokens, setChunkTokens] = useState(128);

@@ -1,4 +1,5 @@
 import { apiUrl } from './config';
+import { ChatUpdateEvent } from '../types';
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(apiUrl(path), {
@@ -56,7 +57,7 @@ export async function chatInSession(payload: {
   prompt: string;
   completion: string;
   text: string;
-  update_events: any[];
+  update_events: ChatUpdateEvent[];
   updated_at_unix: number;
 }> {
   return fetchJson(`/api/text/sessions/${encodeURIComponent(payload.session_id)}/chat`, {

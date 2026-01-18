@@ -4,8 +4,9 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import torch
 
@@ -64,6 +65,10 @@ class TextSessionPaths:
 
     def events_jsonl(self, session_id: str) -> str:
         return os.path.join(self.session_dir(session_id), "events.jsonl")
+
+    def trace_jsonl(self, session_id: str) -> str:
+        # Full prompt/completion replay data for "sleep consolidation"
+        return os.path.join(self.session_dir(session_id), "trace.jsonl")
 
 
 class TextSessionStore:
@@ -215,6 +220,7 @@ class TextSessionStore:
         response_preview: str,
         update_events: List[Dict[str, Any]],
     ) -> None:
+        # Legacy: metadata-only (previews + hashes)
         sid = str(session_id).strip()
         if not sid:
             raise ValueError("Empty session_id")
@@ -231,3 +237,58 @@ class TextSessionStore:
         }
         _append_jsonl(self.paths.events_jsonl(sid), rec)
 
+    def append_chat_turn(
+        self,
+        session_id: str,
+        *,
+        prompt: str,
+        completion: str,
+        update_events: List[Dict[str, Any]],
+    ) -> str:
+        """
+        New: write BOTH:
+          - events.jsonl (metadata + update stats)
+          - trace.jsonl  (full prompt/completion for replay during "sleep")
+
+        Returns: event_id (for linking).
+        """
+        sid = str(session_id).strip()
+        if not sid:
+            raise ValueError("Empty session_id")
+
+        t_unix = int(time.time())
+        event_id = uuid.uuid4().hex
+
+        pb = prompt.encode("utf-8", errors="replace")
+        prompt_sha256 = hashlib.sha256(pb).hexdigest()
+
+        # events.jsonl (compact)
+        events_rec = {
+            "t_unix": t_unix,
+            "event_id": event_id,
+            "prompt_sha256": prompt_sha256,
+            "prompt_bytes": int(len(pb)),
+            "prompt_preview": _safe_preview(prompt, max_len=120),
+            "response_preview": _safe_preview(completion, max_len=120),
+            "update_events": update_events,
+        }
+        _append_jsonl(self.paths.events_jsonl(sid), events_rec)
+
+        # trace.jsonl (full)
+        meta = {}
+        try:
+            meta = self.load_meta(sid)
+        except Exception:
+            meta = {}
+        trace_rec = {
+            "t_unix": t_unix,
+            "event_id": event_id,
+            "session_id": sid,
+            "model_id": str(meta.get("model_id") or ""),
+            "prompt_sha256": prompt_sha256,
+            "prompt": str(prompt),
+            "completion": str(completion),
+        }
+        _append_jsonl(self.paths.trace_jsonl(sid), trace_rec)
+
+        return event_id

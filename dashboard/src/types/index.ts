@@ -198,6 +198,17 @@ export interface Tab {
   icon: string;
 }
 
+// Text chat update event (from ttt_ssm_nano/artifacts_api/text_chat_service.py)
+export interface ChatUpdateEvent {
+  chunk_index: number;
+  token_start: number;
+  token_end: number;
+  step_in_chunk: number;
+  loss: number;
+  grad_norm: number;
+  update_norm: number;
+}
+
 // Text monitoring types (from ttt/monitors/gradient.py)
 export interface MonitorEvent {
   chunk_index: number;

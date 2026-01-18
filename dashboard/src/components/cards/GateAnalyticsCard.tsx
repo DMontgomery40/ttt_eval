@@ -22,7 +22,7 @@ export function GateAnalyticsCard({
     events.forEach(e => {
       if (!e.gate_allowed || e.update_skipped) {
         totalRejected++;
-        e.gate_reasons.forEach(reason => {
+        (e.gate_reasons || []).forEach(reason => {
           reasons[reason] = (reasons[reason] || 0) + 1;
         });
       }

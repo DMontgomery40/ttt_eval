@@ -544,7 +544,7 @@ export function TextTrainTab() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={metrics}>
+                <LineChart data={metrics.filter(m => m.loss != null && m.grad_norm != null)}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis dataKey="step" stroke="#94a3b8" tick={{ fontSize: 12 }} />
                   <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />

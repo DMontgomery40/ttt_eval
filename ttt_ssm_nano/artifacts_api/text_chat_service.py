@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -64,18 +64,23 @@ class TextChatService:
     def _choose_model_id(self, model_id: Optional[str]) -> str:
         if model_id:
             return model_id
-        # Prefer the latest usable (has tokenizer+checkpoint) model.
+
+        # Prefer the latest usable stable model (tokenizer+checkpoint) that is NOT a sleep candidate.
         for rec in self.lm.list_models():
             mid = str((rec or {}).get("model_id") or "").strip()
             if not mid:
                 continue
-            if str((rec or {}).get("status") or "").strip().lower() == "failed":
+
+            status = str((rec or {}).get("status") or "").strip().lower()
+            if status in ("failed", "cancelled", "running", "initializing", "sleep_candidate", "candidate"):
                 continue
+
             if not os.path.exists(self.lm.store.paths.checkpoint_pt(mid)):
                 continue
             if not os.path.exists(self.lm.store.paths.tokenizer_json(mid)):
                 continue
             return mid
+
         raise FileNotFoundError(
             "No usable text model found in artifacts/text_models. Train one in the Train tab."
         )
@@ -91,7 +96,6 @@ class TextChatService:
         d_model = int(loaded.model.cfg.d_model)
 
         ctx = create_context_net(d_model=d_model, cfg=context_cfg)
-        # Initialize optimizer state by doing a no-op load of a fresh optimizer state dict.
         empty_opt_state: Dict[str, Any] = {}
 
         sid = self.sessions.new_session_id(prefix="chat")
@@ -160,6 +164,7 @@ class TextChatService:
         ctx = ctx.to(self._device)
 
         ids = tok.encode(prompt, add_bos=True, add_eos=False)
+
         canary_token_ids_list = None
         if bool(getattr(context_cfg, "spfw_enabled", False)):
             texts = list(getattr(context_cfg, "canary_texts", []) or [])
@@ -200,10 +205,11 @@ class TextChatService:
             optim_state=_to_cpu(new_opt_state),
         )
 
-        self.sessions.append_chat_event(
+        # IMPORTANT: write trace.jsonl + events.jsonl (linked with event_id).
+        self.sessions.append_chat_turn(
             session_id,
             prompt=prompt,
-            response_preview=completion,
+            completion=completion,
             update_events=[e.__dict__ for e in update_events],
         )
 

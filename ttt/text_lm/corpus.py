@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import random
+from array import array
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import Iterable, List, Sequence, Tuple
 
 import torch
 
@@ -25,7 +26,7 @@ class Batch:
 
 
 def sample_next_token_batch(
-    token_ids: List[int],
+    token_ids: Sequence[int],
     *,
     batch_size: int,
     seq_len: int,
@@ -43,7 +44,7 @@ def sample_next_token_batch(
     max_start = len(token_ids) - (seq_len + 1)
     for _ in range(batch_size):
         start = rng.randint(0, max_start)
-        window = token_ids[start : start + seq_len + 1]
+        window = [int(token_ids[i]) for i in range(start, start + seq_len + 1)]
         xs.append(window[:-1])
         ys.append(window[1:])
 
@@ -55,3 +56,30 @@ def sample_next_token_batch(
 def encode_corpus(tokenizer: BpeTokenizer, text: str) -> List[int]:
     return tokenizer.encode(text, add_bos=True, add_eos=True)
 
+
+def encode_corpus_files(
+    tokenizer: BpeTokenizer,
+    paths: Sequence[str],
+    *,
+    add_bos: bool = True,
+    add_eos: bool = True,
+) -> array:
+    """
+    Stream-encode corpus files to a compact uint16 array.
+
+    This avoids building a giant Python `list[int]`, which can easily consume
+    tens of GB for large corpora.
+    """
+    ids = array("H")
+    if add_bos:
+        ids.append(int(tokenizer.bos_id))
+
+    for p in paths:
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                part = tokenizer.encode(line, add_bos=False, add_eos=False)
+                ids.extend(int(x) for x in part)
+
+    if add_eos:
+        ids.append(int(tokenizer.eos_id))
+    return ids

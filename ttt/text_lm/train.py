@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from ttt.optim.muon import make_muon_optimizer
-from ttt.text_lm.corpus import encode_corpus, load_text, sample_next_token_batch
+from ttt.text_lm.corpus import encode_corpus_files, sample_next_token_batch
 from ttt.text_lm.model import TinyLm, TinyLmConfig
 from ttt.text_lm.store import TextModelStore, _atomic_write_json
 from ttt.tokenization.bpe import BpeTokenizer, train_bpe_from_files
@@ -158,8 +158,7 @@ def train(
 
         tok.save(tok_out)
 
-        text = load_text(corpus_files)
-        ids = encode_corpus(tok, text)
+        ids = encode_corpus_files(tok, corpus_files)
 
         cfg = TinyLmConfig(vocab_size=tok.vocab_size, d_model=int(d_model), backbone=backbone)  # type: ignore[arg-type]
         model = TinyLm(cfg).to(dev)

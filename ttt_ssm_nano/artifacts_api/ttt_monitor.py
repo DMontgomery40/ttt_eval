@@ -13,7 +13,7 @@ class RunTextMonitorRequest(BaseModel):
     device: str = "cpu"
     seed: int = 0
 
-    backbone: Literal["gru", "ssm"] = "gru"
+    backbone: Literal["gru", "ssm"] = "ssm"
     objective: Literal["ar", "mlm"] = "ar"
     mlm_prob: float = Field(default=0.15, ge=0.0, le=1.0)
 

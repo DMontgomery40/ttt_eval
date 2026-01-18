@@ -8,6 +8,7 @@ import {
   resetTextSession,
   type TextSessionSummary,
 } from '../../api/textChatApi';
+import { ChatUpdateEvent } from '../../types';
 
 export function ChatTab() {
   const [models, setModels] = useState<TextModelSummary[]>([]);
@@ -28,7 +29,7 @@ export function ChatTab() {
   const [elapsedMs, setElapsedMs] = useState<number>(0);
 
   // Response metadata
-  const [updateEvents, setUpdateEvents] = useState<any[]>([]);
+  const [updateEvents, setUpdateEvents] = useState<ChatUpdateEvent[]>([]);
   const [generatedTokens, setGeneratedTokens] = useState<number>(0);
 
   // Context-net (TTT) defaults for new sessions.
