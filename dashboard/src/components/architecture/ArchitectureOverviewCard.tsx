@@ -31,8 +31,8 @@ export function ArchitectureOverviewCard({
           <h3 className="text-lg font-semibold text-text-primary">System Architecture (repo-wide)</h3>
           <p className="text-sm text-text-secondary mt-2 max-w-3xl">
             This repo is intentionally a single cohesive surface for a TTT×SSM hybrid: a slow/core recurrent model plus a
-            fast plastic module treated as a weight-based context window, plus persistence, branching (Nano), and now a
-            first-pass sleep consolidation path (Text).
+            fast plastic module treated as a weight-based context window, plus persistence, branching (Nano), a shared
+            safety harness for fast writes (gate / rollback / SPFW), and a first-pass sleep consolidation path (Text).
           </p>
         </div>
 
@@ -135,4 +135,3 @@ export function ArchitectureOverviewCard({
     </div>
   );
 }
-

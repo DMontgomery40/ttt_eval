@@ -31,18 +31,18 @@ const rows: Row[] = [
   {
     mechanism: 'Rule-based pre-update gate',
     sentry: true,
-    chat: false,
+    chat: true,
     sleep: false,
     nano: false,
-    notes: 'Entropy/diversity/blob/override/OOD+heavy-write gate exists only in Sentry today.',
+    notes: 'Same gate logic is available in Chat as an opt-in per-session toggle (defaults off).',
   },
   {
     mechanism: 'Rollback canary probe',
     sentry: true,
-    chat: false,
+    chat: true,
     sleep: false,
     nano: true,
-    notes: 'Sentry has explicit canary-loss rollback; Nano logs commit/rollback events.',
+    notes: 'Chat can probe canary loss pre/post update and rollback (opt-in); Nano logs commit/rollback events.',
   },
   {
     mechanism: 'Directional canary signals',
@@ -50,7 +50,7 @@ const rows: Row[] = [
     chat: true,
     sleep: false,
     nano: true,
-    notes: 'Chat uses canary grads only when SPFW is enabled.',
+    notes: 'Chat computes canary gradients when SPFW is enabled; Sentry can monitor alignment and/or constrain writes.',
   },
   {
     mechanism: 'SPFW projection',
@@ -58,7 +58,7 @@ const rows: Row[] = [
     chat: true,
     sleep: false,
     nano: false,
-    notes: 'Half-space projection based on canary gradients.',
+    notes: 'Half-space projection based on canary gradients (supports multi-canary; includes a stall guard).',
   },
   {
     mechanism: 'Sleep consolidation (fast→slow)',
@@ -116,4 +116,3 @@ export function SafetyCoverageSection() {
     </div>
   );
 }
-

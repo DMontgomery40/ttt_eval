@@ -61,12 +61,36 @@ This creates asymmetric timescales: fast learning happens continuously but tempo
 
 ---
 
+## Paper Alignment (arXiv 2407.04620)
+
+This repo is inspired by the TTT layers framework described in *Learning to (Learn at Test Time): RNNs with Expressive Hidden States* (Sun et al., 2025). A copy is included at `assets/2407.04620v4.pdf`.
+
+**Paper spec (high level):**
+- **Hidden state = weights.** The recurrent “state” is a small model `f` with weights `W` (e.g. linear or MLP).
+- **Output rule:** `z_t = f(x_t; W_t)` (use the current weights to compute outputs).
+- **Update rule:** `W_{t+1} = W_t - η ∇_W ℓ(W_t; x)` where `ℓ` is a self-supervised loss (run even at inference/test time).
+- **Instantiations:** `TTT-Linear` (linear `f`) and `TTT-MLP` (2-layer MLP `f`).
+- **Efficiency tricks:** mini-batch TTT and a “dual form” for better hardware utilization (their ref impl uses fused kernels).
+
+**How this repo maps to that spec:**
+- **Text / World A (TTT Sentry):** `ttt/core/model.py` + `ttt/monitors/gradient.py` treat `adapter.weight` as the fast “hidden state weights”, updated per chunk with an instrumented safety loop (gate/rollback/SPFW) for eval.
+- **Text / World B (TinyLM chat):** `ttt/text_lm` stores per-session fast weights (context net) and updates them online during chat. The same safety harness primitives are now available here (opt-in via config).
+  - `kind="linear"`: linear residual adapter in hidden space (closest to `TTT-Linear` as “weights-as-state”).
+  - `kind="fast_lowrank_mem"`: low-rank fast-weight memory (`A/B` factors) with a self-supervised associative objective (`memory_loss`).
+- **Nano (SSM + branching):** `ttt_ssm_nano` uses a diagonal-stable SSM with a small set of plastic matrices persisted and branchable; conceptually “state as weights” in a non-language environment.
+
+**Intentional gaps vs the paper:**
+- No dual-form/fused-kernel TTT compute; this repo prioritizes correctness + safety instrumentation using standard PyTorch autograd.
+- No end-to-end outer-loop training of TTT layers at scale; Text core models are trained offline, while fast weights update online only.
+
+---
+
 ## What Exists vs What Is Claimed
 
 ### Exists (Concrete)
 
 - Artifact store with branching sessions ("git for plastic weights")
-- TTT safety monitor with gate + rollback + directional signals
+- Shared TTT safety harness (gate + rollback + SPFW projection) used by both the monitor path and the chat path
 - Tiny trainable LM (BPE + Muon) with per-session fast weights
 - Sleep consolidation that replays chat traces into core model
 - Dashboard for observing all of the above
@@ -84,6 +108,7 @@ This creates asymmetric timescales: fast learning happens continuously but tempo
 
 - [Quick Start](#quick-start)
 - [Product Surface](#product-surface)
+- [Paper Alignment](#paper-alignment-arxiv-240704620)
 - [Nano Domain](#nano-domain-ssm--branching-sessions)
 - [Text Domain](#text-domain)
   - [World A: TTT Sentry](#text-world-a--ttt-sentry)
@@ -190,7 +215,7 @@ Why μ exists:
 
 ## Text Domain
 
-Two parallel implementations sharing utilities but with different safety coverage:
+Two text tracks with different models/tokenizers, now sharing the same safety primitives (gate/rollback/SPFW) and event schema:
 
 ### Text World A — TTT Sentry
 
@@ -205,8 +230,8 @@ The canonical safety-instrumented update loop.
 1. Compute objective loss
 2. Compute write pressure (adapter grad norm)
 3. Compute auxiliary signals (compression proxy, canary alignment)
-4. Gate decision (allow/block)
-5. Apply update or SPFW-projected update
+4. Gate decision (allow/block) or `--safety_mode spfw` (project gradients before stepping)
+5. Apply update (possibly SPFW-projected; Muon not used here)
 6. Post-update canary rollback check
 
 **Gate (`ttt/core/gate.py`):**
@@ -247,11 +272,37 @@ Fast weights as a per-session context window.
 
 **Per message:**
 1. Encode prompt
-2. Muon steps on context net only (core frozen)
-3. Generate with `hidden = core(tokens) + context(hidden)`
-4. Persist `context_state.pt`, `optim_state.pt`, `trace.jsonl`
+2. Chunk the prompt and (optionally) run the **gate** on each chunk (block skips the write, not generation)
+3. Compute a fast-weight objective (per chunk):
+   - `kind="linear"`: next-token CE on the chunk
+   - `kind="fast_lowrank_mem"`: `memory_loss` on hidden states (associative fast memory)
+4. Apply the update to the context net only (Muon; core frozen), optionally projecting gradients via **SPFW**
+5. Optionally probe a **rollback canary** before/after and restore the previous fast state on threshold breach
+6. Persist `context_state.pt`, `optim_state.pt`, `trace.jsonl`, and `events.jsonl` update events
 
-**Current safety coverage:** SPFW projection available, gate/rollback not yet integrated.
+**Safety is opt-in (defaults OFF):**
+- `enable_gate`: run `ttt/core/gate.py` before writing; block means “skip update”.
+- `enable_spfw`: project fast-weight gradients into a safe subspace before `opt.step()` (Muon preserved).
+- `enable_rollback`: probe canary loss pre/post update and rollback on regression (“transaction semantics”).
+
+Canaries are configured with `canary_texts` (the first canary is used for rollback; all canaries constrain SPFW). If none are provided, chat defaults to `ttt/core/model.DEFAULT_CANARY_TEXT`.
+
+**API example (create a safety-instrumented chat session):**
+```bash
+curl -sS -X POST http://127.0.0.1:13579/api/text/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "kind": "fast_lowrank_mem",
+    "enable_gate": true,
+    "enable_spfw": true,
+    "enable_rollback": true,
+    "spfw_eps_cos": 0.02,
+    "spfw_passes": 1,
+    "canary_texts": ["<your canary prompt>"]
+  }'
+```
+
+Note: the dashboard Chat tab may not expose all safety toggles yet; the server/API supports them per-session via the request above (and they’re stored in `artifacts/text_sessions/<id>/meta.json`).
 
 ### Sleep Consolidation
 
@@ -280,9 +331,9 @@ python -m ttt.text_lm.sleep --artifacts_root artifacts
 | Mechanism | TTT Sentry (A) | Chat (B) | Nano |
 |-----------|:--------------:|:--------:|:----:|
 | Online TTT updates | ✓ | ✓ | ✓ |
-| Gate (entropy/blob/override) | ✓ | ✗ | ✗ |
-| Rollback (canary probe) | ✓ | ✗ | ✓ |
-| Directional monitoring | ✓ | via SPFW | ✓ |
+| Gate (entropy/blob/override) | ✓ | ✓ (opt-in) | ✗ |
+| Rollback (canary probe) | ✓ | ✓ (opt-in) | ✓ |
+| Directional monitoring | ✓ | ✓ (via SPFW) | ✓ |
 | SPFW projection | ✓ | ✓ | ✗ |
 | Sleep consolidation | ✗ | ✓ | ✗ |
 
@@ -349,12 +400,14 @@ ttt_ssm_eval/
 - `ttt/core/gate.py` — Pre-update gate
 - `ttt/core/rollback.py` — Post-update canary rollback
 - `ttt/core/spfw.py` — Safety-projected fast weights
+- `ttt/core/grad_utils.py` — Best-effort grads (`allow_unused=True`) for SPFW constraints
 - `ttt/monitors/gradient.py` — Instrumented update loop
 
 **Models:**
 - `ttt/core/model.py` — ToyTTTModel
 - `ttt/text_lm/model.py` — TinyLm
 - `ttt/text_lm/context.py` — Fast context nets
+- `ttt/text_lm/fast_memory.py` — Low-rank fast-weight memory (`kind="fast_lowrank_mem"`)
 
 **Learning:**
 - `ttt/text_lm/train.py` — Offline training
@@ -365,7 +418,7 @@ ttt_ssm_eval/
 
 ## What's Next
 
-- [ ] Gate + rollback integration into chat TTT
+- [ ] Expose chat safety toggles in the Dashboard Chat tab (API already supports it)
 - [ ] Auditor filtering in sleep (LLM review of traces)
 - [ ] Importance-weighted consolidation (not just replay)
 - [ ] Adapter residual from consolidated delta (meta-learning bias)

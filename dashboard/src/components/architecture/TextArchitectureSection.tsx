@@ -10,8 +10,9 @@ export function TextArchitectureSection() {
       <div className="bg-surface-50 border border-surface-200 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-text-primary">Text Domain (two codepaths)</h3>
         <p className="text-sm text-text-secondary mt-2">
-          The repo currently has two parallel text tracks. They share some utilities (Muon, SPFW), but they are not the
-          same model and do not yet share identical safety coverage.
+          The repo has two parallel text tracks with different models/tokenizers. They now share the same safety harness
+          primitives (gate / rollback / SPFW) and a largely aligned event schema, but they are still separate model
+          implementations.
         </p>
 
         <div className="grid grid-cols-2 gap-4 mt-6">
@@ -49,7 +50,7 @@ export function TextArchitectureSection() {
             <ul className="text-xs text-text-secondary list-disc pl-5 space-y-1">
               <li>Compute AR/MLM loss + adapter grad norm (“write pressure”).</li>
               <li>Gate decision (entropy/diversity/blob/override/OOD+heavy-write).</li>
-              <li>Apply update (or SPFW-projected update).</li>
+              <li>Apply update (or project grads via SPFW then step).</li>
               <li>Canary probe and rollback on regression (“transaction semantics”).</li>
             </ul>
           </div>
@@ -86,12 +87,20 @@ export function TextArchitectureSection() {
             <div className="flex items-center gap-2 overflow-x-auto py-2">
               <DiagramBox label="hidden h" sublabel="core" color="#8b949e" />
               <Arrow />
-              <DiagramBox label="+ context(h)" sublabel="TTT" color="#39d353" plastic />
+              <DiagramBox label="+ context(h)" sublabel="TTT (fast weights)" color="#39d353" plastic />
               <Arrow />
               <DiagramBox label="logits" sublabel="sample" color="#58a6ff" />
               <Arrow />
               <DiagramBox label="text_sessions/" sublabel="state+trace" color="#8b949e" />
             </div>
+
+            <div className="text-xs text-text-muted">Update loop (per chunk, chat):</div>
+            <ul className="text-xs text-text-secondary list-disc pl-5 space-y-1">
+              <li>Compute a fast-weight loss (CE for linear adapter, or associative loss for fast memory).</li>
+              <li>Optional gate: block means “skip write” (generation still runs).</li>
+              <li>Optional SPFW: project context gradients into a safe subspace before Muon step.</li>
+              <li>Optional rollback: probe canary before/after and restore previous state on regression.</li>
+            </ul>
 
             <div className="text-xs text-text-muted">What updates where:</div>
             <ul className="text-xs text-text-secondary list-disc pl-5 space-y-1">
@@ -102,8 +111,8 @@ export function TextArchitectureSection() {
             </ul>
 
             <div className="bg-surface-50 border border-surface-200 rounded p-3 text-xs text-text-secondary">
-              Safety note: SPFW can be enabled for chat fast weights, but the rule-based gate/rollback stack from World A
-              is not yet integrated into the chat update loop.
+              Safety note: gate / rollback / SPFW are available for chat fast-weight updates (all opt-in; defaults off per
+              session). Canary texts are used for both rollback probing and SPFW constraints.
             </div>
           </div>
         </div>
