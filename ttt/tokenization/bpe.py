@@ -7,7 +7,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 
 _SEGMENT_RE = re.compile(r"\\s+|[^\\s]+", re.UNICODE)
@@ -212,12 +212,17 @@ def train_bpe(
     lines: Iterable[str],
     *,
     config: BpeTrainingConfig,
+    progress_hook: Optional[Callable[[Dict[str, Any]], None]] = None,
+    progress_every_merges: int = 50,
 ) -> BpeTokenizer:
     byte_offset = len(config.special_tokens)
     base_ids = byte_offset + 256
 
     vocab: Dict[Tuple[int, ...], int] = {}
+    t0 = time.time()
+    line_count = 0
     for line in lines:
+        line_count += 1
         for seg in _iter_segments(line):
             b = seg.encode("utf-8", errors="replace")
             if not b:
@@ -225,11 +230,31 @@ def train_bpe(
             seq = tuple(byte_offset + x for x in b)
             vocab[seq] = vocab.get(seq, 0) + 1
 
+        if progress_hook and (line_count == 1 or line_count % 2000 == 0):
+            progress_hook(
+                {
+                    "stage": "tokenizer_vocab",
+                    "lines": int(line_count),
+                    "unique_segments": int(len(vocab)),
+                    "seconds": float(time.time() - t0),
+                }
+            )
+
+    if progress_hook:
+        progress_hook(
+            {
+                "stage": "tokenizer_vocab_built",
+                "lines": int(line_count),
+                "unique_segments": int(len(vocab)),
+                "seconds": float(time.time() - t0),
+            }
+        )
+
     merges: List[Tuple[int, int]] = []
     next_id = base_ids
     max_merges = max(0, int(config.vocab_size) - base_ids)
 
-    for _ in range(max_merges):
+    for merge_i in range(max_merges):
         pair_counts: Counter[Tuple[int, int]] = Counter()
         for seq, freq in vocab.items():
             if len(seq) < 2:
@@ -263,6 +288,18 @@ def train_bpe(
             new_vocab[out_t] = new_vocab.get(out_t, 0) + freq
         vocab = new_vocab
 
+        if progress_hook and (merge_i == 0 or (merge_i + 1) % max(1, int(progress_every_merges)) == 0):
+            progress_hook(
+                {
+                    "stage": "tokenizer_merge",
+                    "merge": int(merge_i + 1),
+                    "max_merges": int(max_merges),
+                    "best_pair_count": int(count),
+                    "vocab_size": int(next_id),
+                    "seconds": float(time.time() - t0),
+                }
+            )
+
     return BpeTokenizer(merges=merges, special_tokens=config.special_tokens)
 
 
@@ -273,6 +310,8 @@ def train_bpe_from_files(
     min_pair_freq: int = 2,
     max_lines: Optional[int] = None,
     special_tokens: Sequence[str] = DEFAULT_SPECIAL_TOKENS,
+    progress_hook: Optional[Callable[[Dict[str, Any]], None]] = None,
+    progress_every_merges: int = 50,
 ) -> BpeTokenizer:
     cfg = BpeTrainingConfig(
         vocab_size=int(vocab_size),
@@ -280,7 +319,12 @@ def train_bpe_from_files(
         max_lines=max_lines,
         special_tokens=tuple(special_tokens),
     )
-    return train_bpe(_iter_lines(paths, max_lines=max_lines), config=cfg)
+    return train_bpe(
+        _iter_lines(paths, max_lines=max_lines),
+        config=cfg,
+        progress_hook=progress_hook,
+        progress_every_merges=progress_every_merges,
+    )
 
 
 def _cmd_train(args: argparse.Namespace) -> None:
@@ -339,4 +383,3 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-

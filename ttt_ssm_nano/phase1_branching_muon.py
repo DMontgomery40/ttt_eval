@@ -880,6 +880,28 @@ def run_session(
     run_dir = os.path.join(store.session_runs_dir(session_id), run_id)
     ensure_dir(run_dir)
 
+    # Persist the underlying trajectory so the dashboard's Physics tab can render
+    # actual state evolution (not just error curves).
+    try:
+        traj: List[Dict[str, object]] = []
+        for t in range(steps):
+            o = obs[t]
+            a = actions[t]
+            traj.append(
+                {
+                    "t": int(t),
+                    "x": float(o[0].item()),
+                    "y": float(o[1].item()),
+                    "vx": float(o[2].item()),
+                    "vy": float(o[3].item()),
+                    "ax": float(a[0].item()),
+                    "ay": float(a[1].item()),
+                }
+            )
+        json_dump(traj, os.path.join(run_dir, "trajectory.json"))
+    except Exception:
+        pass
+
     per_step_csv = os.path.join(run_dir, "per_step.csv")
     with open(per_step_csv, "w", encoding="utf-8") as f:
         f.write("t,base_mse,session_no_update_mse,adaptive_mse,did_update,update_ok\n")

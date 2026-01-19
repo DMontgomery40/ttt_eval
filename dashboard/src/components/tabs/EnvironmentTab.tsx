@@ -17,8 +17,16 @@ export function EnvironmentTab() {
 
   if (!trajectory || trajectory.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 text-text-muted">
-        No trajectory data available for this session.
+      <div className="bg-surface-50 border border-surface-200 rounded-lg p-6">
+        <h3 className="text-sm font-semibold text-text-primary mb-2">Physics</h3>
+        <p className="text-sm text-text-muted">
+          No trajectory recorded for this session/run.
+        </p>
+        <p className="text-xs text-text-muted mt-3">
+          Older artifacts only stored loss curves. Newer runs write{' '}
+          <span className="font-mono">trajectory.json</span> per run (position/velocity/actions). Re-run the Nano
+          session to generate trajectory logging.
+        </p>
       </div>
     );
   }

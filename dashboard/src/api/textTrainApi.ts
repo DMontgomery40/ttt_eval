@@ -26,6 +26,7 @@ export type TrainJobSummary = {
 export type TrainStatus = {
   model_id: string;
   status: string;
+  phase?: string | null;
   pid: number | null;
   started_at_unix: number | null;
   exit_code: number | null;
@@ -36,20 +37,39 @@ export type TrainStatus = {
     grad_norm?: number;
     seconds?: number;
     tokens?: number;
+    event?: string;
+    detail?: string;
+    stage?: string;
+    merge?: number;
+    max_merges?: number;
+    lines?: number;
+    unique_segments?: number;
+    vocab_size?: number;
+    token_count?: number;
   } | null;
 };
 
 export type TrainMetric = {
-  step: number;
-  loss: number;
+  step?: number;
+  loss?: number;
   grad_norm?: number;
   seconds?: number;
   tokens?: number;
+  event?: string;
+  detail?: string;
+  stage?: string;
+  merge?: number;
+  max_merges?: number;
+  lines?: number;
+  unique_segments?: number;
+  vocab_size?: number;
+  token_count?: number;
 };
 
 export type StartTrainRequest = {
   corpus_paths: string[];
   tokenizer_path?: string | null;
+  tokenizer_max_lines?: number;
   vocab_size: number;
   d_model: number;
   backbone: 'gru' | 'ssm';

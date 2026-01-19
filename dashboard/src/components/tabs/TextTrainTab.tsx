@@ -42,6 +42,7 @@ function formatTime(seconds: number): string {
 export function TextTrainTab() {
   const [corpusText, setCorpusText] = useState(DEFAULT_CORPUS.join('\n'));
   const [tokenizerPath, setTokenizerPath] = useState('');
+  const [tokenizerMaxLines, setTokenizerMaxLines] = useState(2000);
 
   const [vocabSize, setVocabSize] = useState(4096);
   const [dModel, setDModel] = useState(256);
@@ -120,6 +121,7 @@ export function TextTrainTab() {
       const res = await startTraining({
         corpus_paths: corpusPaths,
         tokenizer_path: tokenizerPath.trim() ? tokenizerPath.trim() : null,
+        tokenizer_max_lines: tokenizerMaxLines,
         vocab_size: vocabSize,
         d_model: dModel,
         backbone,
@@ -175,6 +177,21 @@ export function TextTrainTab() {
   }, [activeModelId]);
 
   const latest = status?.latest || null;
+  const phaseLabel = useMemo(() => {
+    const base = latest?.stage ?? status?.phase ?? latest?.event ?? '';
+    if (!base) return '—';
+
+    if (latest?.stage === 'tokenizer_merge' && latest.merge != null && latest.max_merges != null) {
+      return `${base} (${latest.merge}/${latest.max_merges})`;
+    }
+    if (latest?.stage === 'tokenizer_vocab' && latest.lines != null) {
+      return `${base} (lines=${latest.lines.toLocaleString()})`;
+    }
+    if (latest?.event === 'encoding_done' && latest.token_count != null) {
+      return `${base} (tokens=${latest.token_count.toLocaleString()})`;
+    }
+    return base;
+  }, [status?.phase, latest]);
   const selectOptions = useMemo(() => {
     const map = new Map<string, { label: string }>();
 
@@ -220,6 +237,16 @@ export function TextTrainTab() {
               value={tokenizerPath}
               onChange={(e) => setTokenizerPath(e.target.value)}
               placeholder="artifacts/text_models/<id>/tokenizer.json"
+              className="mt-1 w-full bg-surface-100 border border-surface-200 rounded px-2 py-1 text-xs font-mono"
+            />
+          </label>
+
+          <label className="text-xs text-text-muted block">
+            Tokenizer max lines (only when training a new tokenizer)
+            <input
+              type="number"
+              value={tokenizerMaxLines}
+              onChange={(e) => setTokenizerMaxLines(Math.max(1, Number(e.target.value) || 2000))}
               className="mt-1 w-full bg-surface-100 border border-surface-200 rounded px-2 py-1 text-xs font-mono"
             />
           </label>
@@ -466,6 +493,13 @@ export function TextTrainTab() {
             <div className="bg-surface-100 rounded-lg p-3">
               <div className="text-xs text-text-muted mb-1">Status</div>
               <div className="font-mono text-sm text-text-primary">{status?.status ?? '—'}</div>
+              <div className="text-xs text-text-muted mt-2 mb-1">Phase</div>
+              <div className="font-mono text-sm text-accent-blue">{phaseLabel}</div>
+              {latest?.detail && (
+                <div className="text-xs text-text-secondary mt-1 break-words">
+                  {latest.detail}
+                </div>
+              )}
               <div className="text-xs text-text-muted mt-2 mb-1">Step</div>
               <div className="font-mono text-sm text-accent-blue">{latest?.step ?? '—'}</div>
             </div>
@@ -537,14 +571,19 @@ export function TextTrainTab() {
             </div>
           )}
 
-          <div className="h-64">
-            {!metrics.length ? (
+          {(() => {
+            const chartData = metrics.filter((m) => m.loss != null && m.grad_norm != null && m.step != null);
+            return (
+              <div className="h-64">
+                {!chartData.length ? (
               <div className="text-sm text-text-muted flex items-center justify-center h-full">
-                Start a run to see live metrics.
+                {status?.status === 'running'
+                  ? `Waiting for first loss/grad metrics… (phase: ${status?.phase ?? 'initializing'})`
+                  : 'Start a run to see live metrics.'}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={metrics.filter(m => m.loss != null && m.grad_norm != null)}>
+                <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis dataKey="step" stroke="#94a3b8" tick={{ fontSize: 12 }} />
                   <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
@@ -559,7 +598,9 @@ export function TextTrainTab() {
                 </LineChart>
               </ResponsiveContainer>
             )}
-          </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

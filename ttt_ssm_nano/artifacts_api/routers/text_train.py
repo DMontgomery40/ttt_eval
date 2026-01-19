@@ -14,6 +14,7 @@ router = APIRouter()
 class StartTextTrainRequest(BaseModel):
     corpus_paths: List[str] = Field(default_factory=list)
     tokenizer_path: Optional[str] = None
+    tokenizer_max_lines: int = Field(default=2000, ge=1, le=10_000_000)
 
     vocab_size: int = Field(default=4096, ge=512, le=65536)
     d_model: int = Field(default=256, ge=32, le=4096)
@@ -48,6 +49,7 @@ def start_train(req: StartTextTrainRequest, mgr: TextTrainManager = Depends(get_
         return mgr.start_training(
             corpus_paths=req.corpus_paths,
             tokenizer_path=(req.tokenizer_path.strip() if req.tokenizer_path else None),
+            tokenizer_max_lines=int(req.tokenizer_max_lines),
             vocab_size=req.vocab_size,
             d_model=req.d_model,
             backbone=req.backbone,

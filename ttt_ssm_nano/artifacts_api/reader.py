@@ -102,6 +102,9 @@ class ArtifactPaths:
     def run_update_events_json(self, session_id: str, run_id: str) -> str:
         return os.path.join(self.run_dir(session_id, run_id), "update_events.json")
 
+    def run_trajectory_json(self, session_id: str, run_id: str) -> str:
+        return os.path.join(self.run_dir(session_id, run_id), "trajectory.json")
+
 
 class ArtifactReader:
     def __init__(self, artifacts_root: str) -> None:
@@ -208,6 +211,93 @@ class ArtifactReader:
             )
         return out
 
+    def _read_trajectory(self, path: str) -> List[Dict[str, Any]]:
+        blob = _maybe_read_json(path)
+        if blob is None:
+            return []
+        if not isinstance(blob, list):
+            return []
+
+        out: List[Dict[str, Any]] = []
+        for p in blob:
+            if not isinstance(p, dict):
+                continue
+            try:
+                out.append(
+                    {
+                        "t": int(p.get("t", 0)),
+                        "x": float(p.get("x", 0.0)),
+                        "y": float(p.get("y", 0.0)),
+                        "vx": float(p.get("vx", 0.0)),
+                        "vy": float(p.get("vy", 0.0)),
+                        "ax": float(p.get("ax", 0.0)),
+                        "ay": float(p.get("ay", 0.0)),
+                    }
+                )
+            except Exception:
+                continue
+        return out
+
+    def _synthesize_trajectory(
+        self,
+        *,
+        steps: int,
+        seed: int,
+        mu: float,
+        env_mode: str,
+        act_dim: int,
+        dt: float = 1.0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Back-compat: older Phase 1 runs didn't persist trajectory.json.
+
+        The Phase 1 environment is deterministic given (steps, seed, mu, env_mode),
+        so we can reconstruct the same trajectory on demand for the dashboard.
+        """
+        if steps <= 0:
+            return []
+
+        gen = torch.Generator(device="cpu")
+        gen.manual_seed(int(seed) + 12345)
+        actions = torch.randn(int(steps), int(act_dim), generator=gen) * 0.5
+
+        pos = torch.zeros(2, dtype=torch.float32)
+        vel = torch.zeros(2, dtype=torch.float32)
+
+        nonlinear = str(env_mode).lower().strip() == "nonlinear"
+        threshold_scale = 2.0
+        static_mult = 2.0
+        dynamic_mult = 0.5
+
+        out: List[Dict[str, Any]] = []
+        for t in range(int(steps)):
+            a = actions[t].to(dtype=torch.float32).view(2)
+            out.append(
+                {
+                    "t": int(t),
+                    "x": float(pos[0].item()),
+                    "y": float(pos[1].item()),
+                    "vx": float(vel[0].item()),
+                    "vy": float(vel[1].item()),
+                    "ax": float(a[0].item()),
+                    "ay": float(a[1].item()),
+                }
+            )
+
+            if not nonlinear:
+                mu_eff = float(mu)
+            else:
+                speed = float(torch.linalg.norm(vel).item())
+                thresh = float(mu) * threshold_scale
+                mu_static = min(0.95, float(mu) * static_mult)
+                mu_dynamic = max(0.0, float(mu) * dynamic_mult)
+                mu_eff = mu_static if speed < thresh else mu_dynamic
+
+            vel = (1.0 - mu_eff) * vel + a
+            pos = pos + vel * float(dt)
+
+        return out
+
     def _compute_run_metrics(
         self,
         *,
@@ -266,11 +356,30 @@ class ArtifactReader:
             update_events = self._read_update_events(
                 self.paths.run_update_events_json(session_id, run_id)
             )
+            trajectory = self._read_trajectory(
+                self.paths.run_trajectory_json(session_id, run_id)
+            )
 
             steps = len(per_step)
             seed = seed_from_id if seed_from_id is not None else int(meta.get("seed", 0))
             mu = float(meta.get("mu", 0.0))
             env_mode = str(meta.get("env_mode", "linear"))
+
+            if not trajectory and steps > 0:
+                model_cfg = meta.get("model_cfg", {})
+                act_dim = 2
+                dt = 1.0
+                if isinstance(model_cfg, dict):
+                    act_dim = int(model_cfg.get("act_dim", act_dim) or act_dim)
+                    dt = float(model_cfg.get("dt", dt) or dt)
+                trajectory = self._synthesize_trajectory(
+                    steps=steps,
+                    seed=seed,
+                    mu=mu,
+                    env_mode=env_mode,
+                    act_dim=act_dim,
+                    dt=dt,
+                )
 
             metrics = self._compute_run_metrics(
                 run_id=run_id,
@@ -291,6 +400,7 @@ class ArtifactReader:
                     "metrics": metrics,
                     "perStep": per_step,
                     "updateEvents": update_events,
+                    **({"trajectory": trajectory} if trajectory else {}),
                 }
             )
 
@@ -385,6 +495,7 @@ class ArtifactReader:
         if current_run is None:
             per_step: List[Dict[str, Any]] = []
             update_events: List[Dict[str, Any]] = []
+            trajectory: List[Dict[str, Any]] = []
             metrics = {
                 "run_id": "",
                 "seed": 0,
@@ -408,6 +519,7 @@ class ArtifactReader:
             per_step = list(current_run.get("perStep", []))
             update_events = list(current_run.get("updateEvents", []))
             metrics = dict(current_run.get("metrics", {}))
+            trajectory = list(current_run.get("trajectory", [])) if current_run.get("trajectory") else []
 
         # Weights
         plastic = torch.load(self.paths.session_plastic(session_id), map_location="cpu")
@@ -450,5 +562,5 @@ class ArtifactReader:
             "weights": weights,
             "parentWeights": parent_weights,
             "baseWeights": base_weights,
+            **({"trajectory": trajectory} if trajectory else {}),
         }
-

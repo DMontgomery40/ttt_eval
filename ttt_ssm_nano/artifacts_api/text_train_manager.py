@@ -135,6 +135,7 @@ class TextTrainManager:
         *,
         corpus_paths: Sequence[str],
         tokenizer_path: Optional[str],
+        tokenizer_max_lines: int,
         vocab_size: int,
         d_model: int,
         backbone: str,
@@ -182,6 +183,8 @@ class TextTrainManager:
             model_id,
             "--vocab_size",
             str(int(vocab_size)),
+            "--tokenizer_max_lines",
+            str(int(tokenizer_max_lines)),
             "--d_model",
             str(int(d_model)),
             "--backbone",
@@ -260,6 +263,7 @@ class TextTrainManager:
         job = self._jobs.get(model_id)
         code = job.poll() if job else None
         rec = self._load_model_record(model_id) or {}
+        phase = rec.get("status")
         if job and code is None:
             status = "running"
         elif job:
@@ -275,6 +279,7 @@ class TextTrainManager:
         return {
             "model_id": model_id,
             "status": status,
+            "phase": phase,
             "pid": (job.pid if job else None),
             "started_at_unix": (job.started_at_unix if job else None),
             "exit_code": (None if not job else code),

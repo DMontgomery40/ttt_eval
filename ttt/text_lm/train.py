@@ -91,6 +91,7 @@ def train(
     corpus_paths: Sequence[str],
     corpus_dirs: Sequence[str],
     tokenizer_path: Optional[str],
+    tokenizer_max_lines: Optional[int],
     vocab_size: int,
     d_model: int,
     backbone: str,
@@ -120,6 +121,12 @@ def train(
     ckpt_out = store.paths.checkpoint_pt(model_id)
     log_path = store.paths.train_log_jsonl(model_id)
 
+    job_t0 = time.time()
+
+    def _log(event: str, **fields: object) -> None:
+        rec = {"event": str(event), "seconds": float(time.time() - job_t0), **fields}
+        _append_jsonl(log_path, rec)
+
     record: dict = {
         "model_id": model_id,
         "created_at_unix": int(time.time()),
@@ -145,20 +152,48 @@ def train(
     store.register_model(model_id, record)
 
     try:
+        _log("initializing", detail="starting training job")
         dev = _device_from_arg(device)
         rng = random.Random(int(seed))
         torch.manual_seed(int(seed))
 
+        _log("collecting_corpus", detail="scanning corpus paths")
         corpus_files = _collect_corpus_files(corpus_paths=corpus_paths, corpus_dirs=corpus_dirs)
+        _log("corpus_ready", file_count=len(corpus_files))
 
         if tokenizer_path:
+            record["status"] = "loading_tokenizer"
+            store.register_model(model_id, record)
+            _log("tokenizer_loading", tokenizer_path=os.path.relpath(tokenizer_path, start=os.getcwd()))
             tok = BpeTokenizer.load(tokenizer_path)
         else:
-            tok = train_bpe_from_files(corpus_files, vocab_size=vocab_size)
+            record["status"] = "tokenizing"
+            store.register_model(model_id, record)
+            _log(
+                "tokenizer_training",
+                vocab_size=int(vocab_size),
+                tokenizer_max_lines=(None if tokenizer_max_lines is None else int(tokenizer_max_lines)),
+            )
+
+            def _tok_hook(msg: dict) -> None:
+                clean = dict(msg)
+                clean.pop("seconds", None)  # keep a single clock in train_log.jsonl
+                _log("tokenizer_progress", **clean)
+
+            tok = train_bpe_from_files(
+                corpus_files,
+                vocab_size=vocab_size,
+                max_lines=tokenizer_max_lines,
+                progress_hook=_tok_hook,
+            )
 
         tok.save(tok_out)
 
+        record["status"] = "encoding_corpus"
+        store.register_model(model_id, record)
+        _log("encoding_start")
         ids = encode_corpus_files(tok, corpus_files)
+        _log("encoding_done", token_count=int(len(ids)))
 
         cfg = TinyLmConfig(vocab_size=tok.vocab_size, d_model=int(d_model), backbone=backbone)  # type: ignore[arg-type]
         model = TinyLm(cfg).to(dev)
@@ -186,8 +221,9 @@ def train(
         record["device"] = str(dev)
         record["vocab_size"] = int(tok.vocab_size)
         store.register_model(model_id, record)
+        _log("train_start", device=str(dev), vocab_size=int(tok.vocab_size))
 
-        t0 = time.time()
+        train_t0 = time.time()
         for step in range(1, int(steps) + 1):
             batch = sample_next_token_batch(ids, batch_size=batch_size, seq_len=seq_len, device=dev, rng=rng)
             logits = model(batch.x)
@@ -204,13 +240,14 @@ def train(
             opt.step()
 
             if step % max(1, int(log_every)) == 0 or step == 1:
-                dt = time.time() - t0
+                dt = time.time() - train_t0
+                tokens_total = int(step) * int(batch_size) * int(seq_len)
                 rec = {
                     "step": step,
                     "loss": float(loss.item()),
                     "grad_norm": grad_norm,
                     "seconds": dt,
-                    "tokens": int(batch_size) * int(seq_len),
+                    "tokens": tokens_total,
                 }
                 _append_jsonl(log_path, rec)
                 print(json.dumps(rec))
@@ -245,6 +282,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     p.add_argument("--corpus_dir", nargs="+", default=[], help="One or more directories of UTF-8 text files")
     p.add_argument("--tokenizer", type=str, default="", help="Existing tokenizer.json (optional)")
     p.add_argument("--vocab_size", type=int, default=4096, help="Used only if training tokenizer")
+    p.add_argument(
+        "--tokenizer_max_lines",
+        type=int,
+        default=2000,
+        help="If training a tokenizer, limit BPE training to the first N lines across corpus files (keeps init fast)",
+    )
     p.add_argument("--d_model", type=int, default=256)
     p.add_argument("--backbone", type=str, default="ssm", choices=["ssm", "gru"])
     p.add_argument("--seq_len", type=int, default=128)
@@ -269,6 +312,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         corpus_paths=args.corpus,
         corpus_dirs=args.corpus_dir,
         tokenizer_path=tokenizer_path,
+        tokenizer_max_lines=(None if tokenizer_path else int(args.tokenizer_max_lines)),
         vocab_size=args.vocab_size,
         d_model=args.d_model,
         backbone=args.backbone,
