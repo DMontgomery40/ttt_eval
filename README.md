@@ -2,8 +2,7 @@
 
 Test-Time Training turns every input into a training example. In a transformer, garbage in = garbage out. In TTT, garbage in = garbage *learned*. This repo is infrastructure for studying how to make that safe.
 
-[![Dashboard](./assets/dashboard_screenshot.png)](./assets/dashboard_screenshot.png)
-[![TTT-SSM Architecture Infographic](./assets/infographic.png)](./assets/infographic.png)
+[![Architecture Tab (repo-wide blueprint)](./assets/ui_architecture.png)](./assets/ui_architecture.png)
 
 ## Architecture Philosophy
 
@@ -174,6 +173,14 @@ The "most blended" TTT×SSM implementation: online plastic matrices inside an SS
 
 Sessions are explicitly branchable. `fork_session` clones plastic weights and optionally optimizer momentum. This enables counterfactual comparisons: same starting point, different update histories.
 
+[![Sessions Tab (compare branches)](./assets/ui_sessions.png)](./assets/ui_sessions.png)
+
+### Physics
+
+The Physics tab visualizes the environment trajectory for the selected run.
+
+[![Physics Tab (trajectory)](./assets/ui_physics.png)](./assets/ui_physics.png)
+
 ---
 
 ## Text Domain
@@ -221,9 +228,15 @@ Trainable tiny LM for the Train + Chat tabs.
 python -m ttt.text_lm.train --corpus_dir training_data --steps 2000
 ```
 
+[![Train Tab (Muon + BPE)](./assets/ui_train.png)](./assets/ui_train.png)
+
 ### Text World B — Chat Sessions
 
 Fast weights as a per-session context window.
+
+[![Chat Tab (fast context net updates)](./assets/ui_chat.png)](./assets/ui_chat.png)
+
+*Caption: this screenshot is from a “raw” stage — tokenizer exists, but the core model is untrained (no pretraining), so output is expected to be gibberish until you run an offline Train job and select that model for chat.*
 
 **Per message:**
 1. Encode prompt
