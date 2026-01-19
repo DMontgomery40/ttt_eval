@@ -24,6 +24,22 @@ class ContextConfig:
     steps_per_message: int = 1
     chunk_tokens: int = 128
 
+    # Safety toggles (all default OFF; opt-in)
+    enable_gate: bool = False
+    enable_rollback: bool = False
+    enable_spfw: bool = False  # Alias for spfw_enabled; prefer enable_spfw going forward.
+
+    # Gate parameters (mirrors ttt/core/gate.py defaults)
+    min_entropy_threshold: float = 1.0
+    min_diversity_threshold: float = 0.1
+    ood_loss_threshold: float = 8.0
+    ood_grad_threshold: float = 2.0
+
+    # Rollback parameters (mirrors ttt/core/rollback.py usage in monitor)
+    rollback_z_threshold: float = 6.0
+    rollback_abs_canary_delta: float = 1.0
+    history_window: int = 64
+
     # Fast memory geometry (only used for kind=fast_lowrank_mem)
     d_mem: int = 64
     mem_rank: int = 8

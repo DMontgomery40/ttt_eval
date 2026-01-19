@@ -29,7 +29,23 @@ class CreateTextSessionRequest(BaseModel):
     d_mem: int = Field(default=64, ge=4, le=1024)
     mem_rank: int = Field(default=8, ge=1, le=256)
 
-    # SPFW: Safety-Projected Fast Weights
+    # Safety toggles (all default OFF)
+    enable_gate: bool = Field(default=False)
+    enable_rollback: bool = Field(default=False)
+    enable_spfw: bool = Field(default=False)
+
+    # Gate parameters (mirrors ttt/core/gate.py)
+    min_entropy_threshold: float = Field(default=1.0, ge=0.0, le=16.0)
+    min_diversity_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
+    ood_loss_threshold: float = Field(default=8.0, ge=0.0, le=100.0)
+    ood_grad_threshold: float = Field(default=2.0, ge=0.0, le=100.0)
+
+    # Rollback parameters (mirrors monitor defaults)
+    rollback_z_threshold: float = Field(default=6.0, ge=0.0, le=100.0)
+    rollback_abs_canary_delta: float = Field(default=1.0, ge=0.0, le=100.0)
+    history_window: int = Field(default=64, ge=8, le=512)
+
+    # SPFW: Safety-Projected Fast Weights (back-compat: spfw_enabled)
     spfw_enabled: bool = Field(default=False)
     spfw_eps_dot: float = Field(default=0.0, ge=0.0)
     spfw_eps_cos: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -66,6 +82,16 @@ def create_session(
             chunk_tokens=int(req.chunk_tokens),
             d_mem=int(req.d_mem),
             mem_rank=int(req.mem_rank),
+            enable_gate=bool(req.enable_gate),
+            enable_rollback=bool(req.enable_rollback),
+            enable_spfw=bool(req.enable_spfw) or bool(req.spfw_enabled),
+            min_entropy_threshold=float(req.min_entropy_threshold),
+            min_diversity_threshold=float(req.min_diversity_threshold),
+            ood_loss_threshold=float(req.ood_loss_threshold),
+            ood_grad_threshold=float(req.ood_grad_threshold),
+            rollback_z_threshold=float(req.rollback_z_threshold),
+            rollback_abs_canary_delta=float(req.rollback_abs_canary_delta),
+            history_window=int(req.history_window),
             spfw_enabled=bool(req.spfw_enabled),
             spfw_eps_dot=float(req.spfw_eps_dot),
             spfw_eps_cos=float(req.spfw_eps_cos),

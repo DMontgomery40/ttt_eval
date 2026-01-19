@@ -166,7 +166,11 @@ class TextChatService:
         ids = tok.encode(prompt, add_bos=True, add_eos=False)
 
         canary_token_ids_list = None
-        if bool(getattr(context_cfg, "spfw_enabled", False)):
+        if (
+            bool(getattr(context_cfg, "enable_spfw", False))
+            or bool(getattr(context_cfg, "spfw_enabled", False))
+            or bool(getattr(context_cfg, "enable_rollback", False))
+        ):
             texts = list(getattr(context_cfg, "canary_texts", []) or [])
             if not texts:
                 texts = [DEFAULT_CANARY_TEXT]
@@ -180,6 +184,7 @@ class TextChatService:
             device=self._device,
             optimizer_state=(opt_state if isinstance(opt_state, dict) else None),
             canary_token_ids_list=canary_token_ids_list,
+            decode_token_ids=(lambda seq: tok.decode(seq, skip_special=True)),
         )
 
         out_ids = generate_with_context(

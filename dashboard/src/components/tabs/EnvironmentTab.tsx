@@ -18,7 +18,7 @@ export function EnvironmentTab() {
   if (!trajectory || trajectory.length === 0) {
     return (
       <div className="bg-surface-50 border border-surface-200 rounded-lg p-6">
-        <h3 className="text-sm font-semibold text-text-primary mb-2">Physics</h3>
+        <h3 className="text-sm font-semibold text-text-primary mb-2">System ID (μ)</h3>
         <p className="text-sm text-text-muted">
           No trajectory recorded for this session/run.
         </p>
@@ -56,9 +56,9 @@ export function EnvironmentTab() {
       <div className="bg-surface-50 border border-surface-200 rounded-lg p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-lg font-semibold text-text-primary mb-1">Hidden Physics Parameter</h3>
+            <h3 className="text-lg font-semibold text-text-primary mb-1">Hidden Environment Parameter (μ)</h3>
             <p className="text-sm text-text-muted">
-              This session's friction coefficient that the model cannot observe directly
+              Ground-truth friction coefficient for this run (hidden from model inputs)
             </p>
           </div>
           <div className="text-right">
@@ -105,7 +105,7 @@ export function EnvironmentTab() {
         {/* Physics explanation */}
         <div className="bg-surface-100 rounded-lg p-4 text-sm">
           <p className="text-text-secondary mb-2">
-            <strong className="text-text-primary">Physics model:</strong> 2D point mass with friction
+            <strong className="text-text-primary">Environment model:</strong> 2D point mass with friction
           </p>
           <code className="block bg-surface rounded p-2 font-mono text-xs text-accent-blue">
             vel_new = (1 - μ) × vel_old + acceleration
@@ -191,7 +191,7 @@ export function EnvironmentTab() {
       <div className="bg-accent-blue/10 border border-accent-blue/30 rounded-lg p-4">
         <p className="text-sm text-text-primary">
           <strong className="text-accent-blue">Key Insight:</strong> The model must infer the hidden μ value
-          from observing how the physics behaves, then encode that knowledge into its plastic weights.
+          from observing how the dynamics behave, then encode that knowledge into its plastic weights.
           Different μ values produce different velocity decay patterns, and a well-trained TTT model
           will adapt its predictions accordingly.
         </p>

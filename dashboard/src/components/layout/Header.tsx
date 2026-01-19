@@ -9,7 +9,7 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
   { id: 'train', label: 'Train', icon: '🏋️' },
   { id: 'weights', label: 'Weights', icon: '🧠' },
   { id: 'transactions', label: 'Transactions', icon: '📝' },
-  { id: 'environment', label: 'Physics', icon: '🎯' },
+  { id: 'environment', label: 'System ID (μ)', icon: '🎯' },
   { id: 'architecture', label: 'Architecture', icon: '🏗️' },
   { id: 'sessions', label: 'Sessions', icon: '📁' },
 ];

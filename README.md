@@ -175,11 +175,16 @@ Sessions are explicitly branchable. `fork_session` clones plastic weights and op
 
 [![Sessions Tab (compare branches)](./assets/ui_sessions.png)](./assets/ui_sessions.png)
 
-### Physics
+### System Identification (Hidden μ)
 
-The Physics tab visualizes the environment trajectory for the selected run.
+Nano includes a tiny **system identification** benchmark: a 2D point-mass environment with friction. Each run has a fixed hidden scalar **μ** (mu) that controls velocity decay. The model does **not** get μ as an input; it only sees the observed trajectory and its own actions.
 
-[![Physics Tab (trajectory)](./assets/ui_physics.png)](./assets/ui_physics.png)
+Why μ exists:
+- **μ is ground truth context.** It is a simulator parameter standing in for “unobserved environment conditions.”
+- **Online learning is the point.** The only way to do well across runs is to infer μ from observations and encode that inference into the model’s *plastic weights*.
+- **We show μ in the dashboard for evaluation.** It’s a label to sanity-check whether the learned plastic state actually tracks the latent context; it’s not a knob the model can “sense” directly.
+
+[![System ID Tab (hidden μ + trajectory)](./assets/ui_physics.png)](./assets/ui_physics.png)
 
 ---
 
@@ -238,6 +243,8 @@ Fast weights as a per-session context window.
 
 *Caption: this screenshot is from a “raw” stage — tokenizer exists, but the core model is untrained (no pretraining), so output is expected to be gibberish until you run an offline Train job and select that model for chat.*
 
+**What “training in chat” means here:** Chat updates the **fast context net only** (per-session weights). The slow/core model weights do not update during chat; they only change via an offline **Train** job or **Sleep** consolidation.
+
 **Per message:**
 1. Encode prompt
 2. Muon steps on context net only (core frozen)
@@ -290,9 +297,7 @@ Put files under `training_data/`. Trainer recursively loads `*.txt/*.md/*.text/*
 ### Recommended Starter
 
 ```bash
-git lfs install
-git clone https://huggingface.co/datasets/roneneldan/TinyStories training_data/TinyStories
-cp training_data/TinyStories/TinyStoriesV2-GPT4-valid.txt training_data/
+./scripts/fetch_tinystories.sh
 ```
 
 ### Memory
@@ -311,7 +316,7 @@ For large corpora, pretrain tokenizer on a subset and reuse via `--tokenizer`.
 
 **"No usable text model":** Train one first. Requires `checkpoint.pt` + `tokenizer.json`.
 
-**Git LFS pointers:** Run `git -C training_data/TinyStories lfs pull`.
+**Git LFS pointers:** Run `git -C training_data/.sources/TinyStories lfs pull`.
 
 **Sleep fails "corpus too small":** Need enough traces to sample `--seq_len` sequences. Generate more chat turns or provide `--core_path`.
 

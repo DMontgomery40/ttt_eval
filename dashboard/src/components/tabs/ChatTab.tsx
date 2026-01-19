@@ -308,7 +308,7 @@ export function ChatTab() {
             <div>
               <h3 className="text-sm font-semibold text-text-primary">Output</h3>
               <p className="text-xs text-text-muted mt-1">
-                Train a core model first with <span className="font-mono">python -m ttt.text_lm.train</span> (or the Train tab).
+                Chat updates fast context weights only (core model frozen). If the selected core model is untrained, output will be gibberish — run <span className="font-mono">python -m ttt.text_lm.train</span> (or use the Train tab).
               </p>
             </div>
             {/* Live latency counter */}

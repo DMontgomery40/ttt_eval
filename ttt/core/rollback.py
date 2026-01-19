@@ -42,10 +42,28 @@ def compute_canary_loss(
     """
     with torch.no_grad():
         logits, _ = model(input_ids, return_emb=False)
-        logits2 = logits[:, :-1, :].contiguous()
-        labels = input_ids[:, 1:].contiguous()
-        loss = F.cross_entropy(
-            logits2.view(-1, vocab_size),
-            labels.view(-1),
-        )
+        loss = compute_next_token_loss_from_logits(logits, input_ids)
         return float(loss.item())
+
+
+def compute_next_token_loss_from_logits(
+    logits: torch.Tensor,
+    input_ids: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Next-token cross-entropy given model logits and the corresponding input ids.
+
+    Args:
+        logits: (B, T, V)
+        input_ids: (B, T) token ids aligned with logits
+
+    Returns:
+        Scalar CE loss tensor (on the same device as logits).
+    """
+    vocab_size = int(logits.size(-1))
+    logits2 = logits[:, :-1, :].contiguous()
+    labels = input_ids[:, 1:].contiguous()
+    return F.cross_entropy(
+        logits2.view(-1, vocab_size),
+        labels.view(-1),
+    )
